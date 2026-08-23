@@ -1,0 +1,17 @@
+{
+  "name": "Точка решения — кабинет репетитора",
+  "short_name": "Точка решения",
+  "description": "Расписание, ученики, методика, материалы и оплата в одном месте",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F7F9FB",
+  "theme_color": "#28425C",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
