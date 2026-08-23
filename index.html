@@ -6,6 +6,10 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Кабинет репетитора: расписание, ученики, методика, материалы и оплата">
 <meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#28425C">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon192.png" type="image/png">
+<link rel="apple-touch-icon" href="appletouchicon.png">
 <title>Точка решения</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3844,6 +3848,15 @@ restorePlace();
 render();
 persist(true);
 })();
+</script>
+<script>
+/* Ярлык на рабочем столе и работа без интернета — только на своём адресе */
+const local = ['localhost','127.0.0.1'].includes(location.hostname);
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || local)) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

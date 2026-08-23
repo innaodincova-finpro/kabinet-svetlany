@@ -3,7 +3,7 @@
    Саму страницу берём сначала из сети: так обновления видны сразу,
    а копия из памяти выручает только когда сети нет. */
 const CACHE = 'tochka-2026-08';
-const CORE = ['./', './index.html', './icon-192.png', './icon-512.png', './icon-maskable.png', './manifest.webmanifest'];
+const CORE = ['./', './index.html', './icon192.png', './icon512.png', './iconmaskable.png', './manifest.webmanifest'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();
