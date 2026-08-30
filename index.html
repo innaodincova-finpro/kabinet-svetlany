@@ -2169,6 +2169,17 @@ function viewRoutes() {
     el('option', {value:''}, '— добавить раздел целиком —'),
     ...[...bySec.keys()].map(k => el('option', {value:k}, `${k} · ${bySec.get(k).length} ${plural(bySec.get(k).length,'тема','темы','тем')}`)));
 
+  /* Класс в селекторе может отличаться от класса самого ученика — это специально
+     (добавить тему на повторение или на опережение), но именно так темы чужого класса
+     незаметно попадают в «Что впереди» отчёта родителям. Поэтому такое добавление
+     подтверждаем отдельным вопросом, а не делаем тем же кликом. */
+  const crossClass = cls !== o.cls;
+  const warnText = n => `${o.label} учится в ${o.cls} классе, а вы добавляете ${n === 1 ? 'тему' : plural(n,'темы','темы','тем')} из ${cls} класса. Тема появится в маршруте и в «Что впереди» отчёта родителям — добавляйте, только если это осознанный выбор (повторение или опережение).`;
+
+  const doAddOne = () => { r.topicIds.push(addSel.value); save('Тема добавлена в маршрут'); };
+  const doAddSection = k => { const ids = bySec.get(k).map(t => t.id); r.topicIds.push(...ids); save(`Добавлен раздел: ${ids.length}`); toast(`Добавлено тем: ${ids.length}`); };
+  const doAddClass = () => { const ids = pool.map(t => t.id); r.topicIds.push(...ids); save(`Добавлен класс: ${ids.length}`); toast(`Добавлено тем: ${ids.length}`); };
+
   return el('div', {},
     head('Учебные маршруты', 'Только порядок тем. Всё про конкретный урок — в карточке занятия.'),
     el('div', {class:'filters'},
@@ -2179,22 +2190,22 @@ function viewRoutes() {
         el('div', {class:'meta', text: `${r.topicIds.length} ${plural(r.topicIds.length,'тема','темы','тем')} в маршруте · ${o.label} · ${o.cls} класс`}),
         el('div', {class:'row'},
           clsSel, addSel,
-          el('button', {class:'btn btn-sm', onclick:() => { if (addSel.value) { r.topicIds.push(addSel.value); save('Тема добавлена в маршрут'); } }}, 'Добавить'))),
+          el('button', {class:'btn btn-sm', onclick:() => {
+            if (!addSel.value) return;
+            if (crossClass) ask('Тема из другого класса', warnText(1), 'Добавить', doAddOne);
+            else doAddOne();
+          }}, 'Добавить'))),
       el('div', {class:'row', style:'margin-bottom:14px'},
         addWholeSection,
         el('button', {class:'btn btn-sm', onclick:() => {
           const k = addWholeSection.value;
           if (!k) return;
-          const ids = bySec.get(k).map(t => t.id);
-          r.topicIds.push(...ids);
-          save(`Добавлен раздел: ${ids.length}`);
-          toast(`Добавлено тем: ${ids.length}`);
+          if (crossClass) ask('Раздел из другого класса', warnText(bySec.get(k).length), 'Добавить раздел', () => doAddSection(k));
+          else doAddSection(k);
         }}, 'Добавить раздел'),
         pool.length ? el('button', {class:'btn btn-ghost btn-sm', onclick:() => {
-          const ids = pool.map(t => t.id);
-          r.topicIds.push(...ids);
-          save(`Добавлен класс: ${ids.length}`);
-          toast(`Добавлено тем: ${ids.length}`);
+          if (crossClass) ask('Целый класс — не свой', warnText(pool.length), 'Добавить', doAddClass);
+          else doAddClass();
         }}, `Добавить весь ${cls} класс`) : null),
       items.length ? el('div', {class:'list'}, items) : el('div', {class:'empty', text:'Маршрут пуст — добавьте темы из методики.'})),
     el('div', {class:'meta', style:'margin-top:12px'}, 'Методика общая по классам, а программа назначается отдельно каждому ученику и каждой группе.'));
@@ -3481,6 +3492,7 @@ function editStudent(id) {
   const payMode = el('select', {}, ...PAY_MODES.map(m => el('option', {value:m, selected:(st?.payMode || 'за занятие') === m}, m)));
   const parent = el('input', {type:'text', value:st?.parent || ''});
   const phone = el('input', {type:'text', value:st?.phone || ''});
+  const meetUrlIn = el('input', {type:'text', value:st?.meetUrl || '', placeholder:'необязательно — по умолчанию кабинет сам создаёт ссылку на Jitsi'});
   const note = el('textarea', {}); note.value = st?.note || '';
 
   openForm(id ? 'Ученик' : 'Новый ученик', [
@@ -3500,6 +3512,9 @@ function editStudent(id) {
     el('label', {class:'field'}, el('span',{},'Как платят'), payMode,
       el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
         'За занятие — платят каждый раз. Помесячно после — счёт в конце месяца за проведённые. Предоплата — вносят вперёд, занятия списывают баланс.')),
+    el('label', {class:'field'}, el('span',{},'Своя ссылка на видео и доску'), meetUrlIn,
+      el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
+        'Только для онлайн-занятий. Если пусто — «Войти на доску» откроет автоматическую ссылку на Jitsi. Впишите сюда постоянную ссылку своей комнаты в другом сервисе (например, Bitpaper) — кнопки в карточке занятия начнут использовать её.')),
     el('label', {class:'field'}, el('span',{},'Заметка'), note)
   ], () => {
     if (!name.value.trim()) return 'Введите имя.';
@@ -3507,7 +3522,7 @@ function editStudent(id) {
       name:name.value.trim(), cls:cls.value.trim() || '6', type:type.value,
       groupId: type.value === 'группа' ? (grp.value || null) : null,
       format:fmt.value, duration:+dur.value, rate:+rate.value || 0, payMode: payMode.value,
-      parent:parent.value.trim(), phone:phone.value.trim(), note:note.value.trim()
+      parent:parent.value.trim(), phone:phone.value.trim(), meetUrl: meetUrlIn.value.trim(), note:note.value.trim()
     };
     if (st) {
       S.groups.forEach(g => g.memberIds = g.memberIds.filter(m => m !== st.id));
@@ -3530,6 +3545,7 @@ function editGroup(id) {
   const fmt = el('select', {}, ...['офлайн','онлайн'].map(f => el('option',{value:f, selected:(g?.format||'офлайн')===f}, f)));
   const dur = el('select', {}, ...[60,90,120].map(d => el('option',{value:d, selected:+(g?.duration||90)===d}, d + ' мин')));
   const rate = el('input', {type:'number', value:g?.rate ?? 40, min:0});
+  const meetUrlIn = el('input', {type:'text', value:g?.meetUrl || '', placeholder:'необязательно — по умолчанию кабинет сам создаёт ссылку на Jitsi'});
   const boxes = S.students.map(s => {
     const cb = el('input', {type:'checkbox', style:'width:auto', checked: g?.memberIds.includes(s.id) || false});
     cb.dataset.sid = s.id;
@@ -3544,13 +3560,16 @@ function editGroup(id) {
       el('label', {class:'field'}, el('span',{},'Формат'), fmt),
       el('label', {class:'field'}, el('span',{},'Длительность'), dur),
       el('label', {class:'field'}, el('span',{},'Ставка с участника'), rate)),
+    el('label', {class:'field'}, el('span',{},'Своя ссылка на видео и доску'), meetUrlIn,
+      el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
+        'Только для онлайн-занятий. Если пусто — «Войти на доску» откроет автоматическую ссылку на Jitsi. Впишите сюда постоянную ссылку комнаты в другом сервисе (например, Bitpaper) — кнопки в карточке занятия начнут использовать её.')),
     el('div', {class:'field'},
       el('span', {style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600'}, 'Состав группы'),
       el('div', {style:'display:grid;gap:6px;margin-top:8px'}, boxes))
   ], () => {
     if (!name.value.trim()) return 'Введите название.';
     const memberIds = boxes.map(b => b.querySelector('input')).filter(i => i.checked).map(i => i.dataset.sid);
-    const d = {name:name.value.trim(), cls:cls.value.trim() || '6', format:fmt.value, duration:+dur.value, rate:+rate.value || 0, memberIds};
+    const d = {name:name.value.trim(), cls:cls.value.trim() || '6', format:fmt.value, duration:+dur.value, rate:+rate.value || 0, meetUrl: meetUrlIn.value.trim(), memberIds};
     let gid;
     if (g) { Object.assign(g, d); gid = g.id; }
     else { gid = uid(); S.groups.push({id:gid, ...d}); S.routes.push({id:uid(), ownerType:'group', ownerId:gid, topicIds:[]}); }
