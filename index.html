@@ -573,13 +573,31 @@ function toast(msg) {
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
+/* Три состояния, при которых писать в браузер нельзя или бесполезно. */
+let storageBroken = false;   // браузер отказался сохранять
+let readOnlyTab = false;     // кабинет уже открыт в другом окне
+let dataUnreadable = false;  // запись в браузере повреждена, ждём решения
+
+/* Лампочка внизу панели: зелёная — всё сохраняется, красная — нет. */
+function saveLamp(state, text) {
+  const n = $('#saveState'); if (n) n.textContent = text;
+  const i = document.querySelector('.rail-foot .save i');
+  if (i) i.style.background = state === 'ok' ? 'var(--ok)' : 'var(--stop)';
+  const w = document.querySelector('.rail-foot .save');
+  if (w) w.style.color = state === 'ok' ? '' : 'var(--stop)';
+}
+
 function persist(quiet) {
+  if (readOnlyTab || dataUnreadable) { if (!quiet) render(); return; }
   S.updatedAt = new Date().toISOString();
   try {
     localStorage.setItem(KEY, JSON.stringify(S));
-    const n = $('#saveState'); if (n) n.textContent = 'сохранено ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    storageBroken = false;
+    saveLamp('ok', 'сохранено ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}));
+    shadowSave();
   } catch (e) {
-    const n = $('#saveState'); if (n) n.textContent = 'не сохраняется';
+    saveLamp('bad', 'НЕ СОХРАНЯЕТСЯ');
+    storageAlarm();
   }
   if (!quiet) render();
 }
@@ -598,6 +616,8 @@ function save(label) {
   lastSnap = snapshot();
   clearTimeout(saveTimer); saveTimer = setTimeout(() => persist(true), 250);
   persist(false);
+  bumpChanges();
+  autoSaveSoon();
 }
 
 function undo() {
@@ -724,7 +744,7 @@ function migrate(d) {
   d.payments = Array.isArray(d.payments) ? d.payments : [];
   d.reportNotes = d.reportNotes && typeof d.reportNotes === 'object' ? d.reportNotes : {};
   if (!d.dayStart && d.dayStart !== 0) d.dayStart = 8;
-  if (!d.dayEnd || d.dayEnd <= 17) d.dayEnd = 21;
+  if (!d.dayEnd) d.dayEnd = 21;
   (d.students || []).forEach(st => { if (!st.payMode) st.payMode = 'за занятие'; });
 
   const membersOf = l => {
@@ -758,13 +778,18 @@ function migrate(d) {
 }
 
 function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) {
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch (e) { raw = null; }
+  if (raw) {
+    try {
       const d = JSON.parse(raw);
       if (d && d.students && d.lessons) return migrate(d);
-    }
-  } catch (e) { /* повреждённые данные — начинаем с образца */ }
+    } catch (e) { /* прочитать не удалось */ }
+    /* Запись есть, но она не читается. Ничего не затираем: показываем
+       окно и предлагаем восстановиться из запасной копии. */
+    dataUnreadable = true;
+    return seed();
+  }
   return seed();
 }
 
@@ -2965,11 +2990,26 @@ function viewHelp() {
     const f = e.target.files[0]; if (!f) return;
     const rd = new FileReader();
     rd.onload = () => {
+      let d = null;
       try {
-        const d = JSON.parse(rd.result);
-        if (!d.students || !d.lessons) throw new Error('bad');
-        S = d; persist(false); toast('Данные загружены');
-      } catch (err) { toast('Файл не похож на выгрузку кабинета'); }
+        d = JSON.parse(rd.result);
+        if (!d || !Array.isArray(d.students) || !Array.isArray(d.lessons)) throw new Error('bad');
+      } catch (err) { toast('Файл не похож на выгрузку кабинета'); fileIn.value = ''; return; }
+
+      /* Замена всего кабинета — слишком крупное действие, чтобы делать его молча.
+         Показываем, что внутри файла, и спрашиваем. */
+      const when = d.updatedAt ? new Date(d.updatedAt).toLocaleString('ru-RU', {day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'}) : 'без даты';
+      const cnt = `${d.students.length} ${plural(d.students.length,'ученик','ученика','учеников')}, ${d.lessons.length} ${plural(d.lessons.length,'занятие','занятия','занятий')}`;
+      const nowCnt = `${S.students.length} ${plural(S.students.length,'ученик','ученика','учеников')} и ${S.lessons.length} ${plural(S.lessons.length,'занятие','занятия','занятий')}`;
+      ask('Загрузить копию из файла?',
+        `В файле: ${cnt}. Копия сохранена ${when}.\n\nВсё, что сейчас в кабинете (${nowCnt}), будет заменено. Если передумаете — сразу после загрузки нажмите «↶ Отменить».`,
+        'Загрузить', () => {
+          S = migrate(d);
+          save('Загружены данные из файла');
+          resetChanges();
+          toast('Данные загружены');
+        }, true);
+      fileIn.value = '';
     };
     rd.readAsText(f);
   }});
@@ -3023,16 +3063,21 @@ function viewHelp() {
           fileIn,
           el('button', {class:'btn btn-sm', onclick: loadProgrammeDialog}, 'Восстановить программу 5–8'),
           el('button', {class:'btn btn-sm', onclick:() => {
-            const load = () => { S = demoSeed(); persist(false); toast('Загружен пример для знакомства'); };
-            if (S.students.length || S.lessons.length)
-              ask('Загрузить пример?', 'Текущие ученики, занятия и оплаты будут стёрты и заменены учебными данными.', 'Загрузить пример', load, true);
+            const load = () => { S = demoSeed(); save('Загружен пример'); toast('Загружен пример для знакомства'); };
+            const busy = S.students.length || S.lessons.length || S.materials.length
+              || Object.values(S.topicBank || {}).some(a => (a || []).length);
+            if (busy)
+              ask('Загрузить пример?', 'Всё, что уже есть в кабинете — ученики, занятия, оплаты, ваши темы и материалы, — будет стёрто и заменено учебными данными. Вернуть можно кнопкой «↶ Отменить» сразу после.', 'Загрузить пример', load, true);
             else load();
           }}, 'Загрузить пример'),
           el('button', {
             class:'btn btn-sm', style:'color:var(--stop); border-color:var(--stop)',
             onclick:() => ask('Очистить кабинет?',
-              'Ученики, группы, занятия, темы, материалы и оплаты будут стёрты. Отменить это будет нельзя — если данные нужны, сначала выгрузите их в файл.',
-              'Очистить всё', () => { S = seed(); persist(false); toast('Кабинет очищен'); }, true)
+              'Ученики, группы, занятия, темы, материалы и оплаты будут стёрты, загруженные файлы удалены из браузера. Вернуть можно кнопкой «↶ Отменить» сразу после — но если данные нужны наверняка, сначала выгрузите их в файл.',
+              'Очистить всё', () => {
+                try { fileTx('readwrite', st => st.clear()); } catch (e) {}
+                S = seed(); save('Очищен кабинет'); toast('Кабинет очищен');
+              }, true)
           }, 'Очистить всё')),
         el('div', {style:'margin-top:14px; padding-top:14px; border-top:1px solid var(--line)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Сохранность данных'}),
@@ -3045,8 +3090,19 @@ function viewHelp() {
                 ? 'обычное — при нехватке места на диске браузер может очистить данные сайта, поэтому храните копии'
                 : 'проверяется…')),
           el('div', {class:'meta', style:'font-size:13px'},
-            'Копия — обычный файл. Сохраняйте его в папку, которая синхронизируется с облаком, — тогда данные переживут и поломку компьютера.')),
-        el('div', {class:'meta', style:'margin-top:12px'}, 'Рабочие часы задают, какую сетку показывать в расписании и в какое время подбирать свободное окно. Занятие вне этих часов всё равно покажется — сетка растянется под него. Данные лежат в этом браузере — ни ко мне, ни куда-либо ещё они не уходят. Чтобы перенести кабинет на другой компьютер, выгрузите файл и загрузите его там. «Восстановить программу 5–8» возвращает исходное тематическое планирование, если темы случайно изменили или удалили — ваши личные заметки к темам при этом пропадут. «Загрузить пример» наполняет кабинет учебными данными, чтобы посмотреть, как всё устроено; «Очистить всё» стирает учеников и занятия, программа остаётся.'))));
+            'Копия — обычный файл. Сохраняйте его в папку, которая синхронизируется с облаком, — тогда данные переживут и поломку компьютера.'),
+          el('div', {style:'margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft)'},
+            el('div', {class:'row', style:'gap:10px; flex-wrap:wrap; align-items:center'},
+              el('b', {style:'font-size:13px', text: autoOn ? 'Автосохранение включено' : 'Автосохранение выключено'}),
+              canAuto()
+                ? el('button', {class:'btn btn-sm', onclick: () => autoOn ? autoOff() : autoSetup()}, autoOn ? 'Выключить' : 'Настроить автосохранение')
+                : null),
+            el('div', {class:'meta', style:'font-size:12.5px; margin-top:6px', text: !canAuto()
+              ? 'В этом браузере автосохранение недоступно — нужен Chrome и кабинет, открытый по адресу в интернете. Сохраняйте копию кнопкой выше.'
+              : autoOn
+                ? 'Кабинет сам обновляет выбранный файл: после отметки занятия и при закрытии окна. Напоминания при этом не показываются.'
+                : 'Один раз выберите файл в облачной папке (Google Диск, Яндекс Диск, OneDrive) — дальше кабинет будет обновлять его сам, без вопросов и окон.'}))),
+        el('div', {class:'meta', style:'margin-top:12px'}, 'Рабочие часы задают, какую сетку показывать в расписании и в какое время подбирать свободное окно. Занятие вне этих часов всё равно покажется — сетка растянется под него. Данные лежат в этом браузере — ни ко мне, ни куда-либо ещё они не уходят. Чтобы перенести кабинет на другой компьютер, выгрузите файл и загрузите его там. «Восстановить программу 5–8» возвращает исходное тематическое планирование, если темы случайно изменили или удалили — ваши личные заметки к темам при этом пропадут. «Загрузить пример» наполняет кабинет учебными данными, чтобы посмотреть, как всё устроено; «Очистить всё» стирает весь кабинет целиком, включая ваши темы и материалы.'))));
 }
 
 /* ═══════════ КАРТОЧКА ЗАНЯТИЯ ═══════════ */
@@ -4052,6 +4108,7 @@ function promptParentLetter(st, month) {
 async function backupNow() {
   await downloadFile(`Кабинет ${S.tutor} — копия ${iso(new Date())}.json`, JSON.stringify(S, null, 2));
   try { localStorage.setItem('tochka-backup', iso(new Date())); } catch (e) {}
+  resetChanges();
   render();
 }
 const lastBackup = () => { try { return localStorage.getItem('tochka-backup') || ''; } catch (e) { return ''; } };
@@ -4140,6 +4197,258 @@ function render() {
   catch (e) { v.append(el('div', {class:'empty', text:'Не удалось показать раздел: ' + e.message})); }
 }
 
+/* ═══════════ СОХРАННОСТЬ: ЗАПАСНАЯ КОПИЯ, НАПОМИНАНИЕ, АВТОСОХРАНЕНИЕ ═══════════ */
+/* Данные кабинета живут в браузере. Здесь собрано всё, что защищает их от
+   тихой пропажи: вторая копия рядом, спокойное напоминание сохранить файл,
+   автоматическая запись копии в выбранную папку и честные предупреждения. */
+
+const SHADOW_KEY = KEY + '-shadow';
+const CHG_KEY = 'tochka-changes';
+const HIDE_KEY = 'tochka-remind-hidden';
+
+/* --- Запасная копия внутри браузера --- */
+function shadowSave() {
+  /* Пишем при каждом сохранении: запасная копия должна отставать
+     от основной не больше чем на одно действие. Пока данные не читаются
+     или окно только для просмотра — не трогаем: там лежит спасение. */
+  if (dataUnreadable || readOnlyTab) return;
+  try { localStorage.setItem(SHADOW_KEY, JSON.stringify({at: new Date().toISOString(), d: S})); } catch (e) {}
+}
+function shadowRead() {
+  try {
+    const raw = localStorage.getItem(SHADOW_KEY); if (!raw) return null;
+    const o = JSON.parse(raw);
+    return (o && o.d && Array.isArray(o.d.students) && Array.isArray(o.d.lessons)) ? o : null;
+  } catch (e) { return null; }
+}
+
+/* Если основная запись не читается — предлагаем вернуться к запасной. */
+function offerRecovery() {
+  if (!dataUnreadable) return;
+  const sh = shadowRead();
+  if (!sh) {
+    dataUnreadable = false;   // возвращать нечего, работаем с чистого листа
+    return;
+  }
+  const when = new Date(sh.at).toLocaleString('ru-RU', {day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'});
+  const cnt = `${sh.d.students.length} ${plural(sh.d.students.length,'ученик','ученика','учеников')} и ${sh.d.lessons.length} ${plural(sh.d.lessons.length,'занятие','занятия','занятий')}`;
+  ask('Данные кабинета не читаются',
+    `Запись в браузере повреждена. Рядом лежит запасная копия от ${when}: ${cnt}.\n\nПока вы не решите, кабинет ничего не записывает — испорченная запись цела.`,
+    'Восстановить из запасной копии', () => {
+      S = migrate(sh.d);
+      dataUnreadable = false;
+      save('Восстановлено из запасной копии');
+      toast('Кабинет восстановлен');
+      refreshBar();
+    }, false);
+  refreshBar();
+}
+
+/* --- Счётчик изменений с последней копии --- */
+const changesSince = () => { try { return +localStorage.getItem(CHG_KEY) || 0; } catch (e) { return 0; } };
+function bumpChanges() {
+  try { localStorage.setItem(CHG_KEY, String(changesSince() + 1)); } catch (e) {}
+  refreshBar();
+}
+function resetChanges() {
+  try { localStorage.setItem(CHG_KEY, '0'); localStorage.removeItem(HIDE_KEY); } catch (e) {}
+  refreshBar();
+}
+
+/* Рабочий день закончен: сегодняшние занятия все отмечены. */
+function dayFinished() {
+  const t = iso(new Date());
+  const today = S.lessons.filter(l => l.date === t);
+  if (!today.length) return false;
+  return today.every(l => Object.keys(l.marks || {}).length > 0);
+}
+
+/* --- Автосохранение копии в выбранный файл (Chrome) --- */
+const AUTO_DB = 'tochka-auto', AUTO_STORE = 'handles';
+function autoTx(mode, fn) {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open(AUTO_DB, 1);
+    rq.onupgradeneeded = () => { if (!rq.result.objectStoreNames.contains(AUTO_STORE)) rq.result.createObjectStore(AUTO_STORE); };
+    rq.onerror = () => rej(rq.error);
+    rq.onsuccess = () => {
+      try {
+        const tx = rq.result.transaction(AUTO_STORE, mode);
+        const r = fn(tx.objectStore(AUTO_STORE));
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      } catch (e) { rej(e); }
+    };
+  });
+}
+const canAuto = () => typeof window.showSaveFilePicker === 'function';
+let autoHandle = null, autoOn = false, autoFailed = false, autoTimer = null;
+
+async function autoSetup() {
+  if (!canAuto()) { toast('Автосохранение работает в Chrome'); return; }
+  let h;
+  try {
+    h = await window.showSaveFilePicker({
+      suggestedName: `Кабинет ${S.tutor} — копия.json`,
+      types: [{description: 'Копия кабинета', accept: {'application/json': ['.json']}}]
+    });
+  } catch (e) { return; }   // выбор отменили
+  autoHandle = h; autoOn = true; autoFailed = false;
+  try { await autoTx('readwrite', st => st.put(h, 'file')); } catch (e) {}
+  await autoSaveNow(true);
+  render();
+}
+async function autoOff() {
+  autoHandle = null; autoOn = false; autoFailed = false;
+  try { await autoTx('readwrite', st => st.delete('file')); } catch (e) {}
+  toast('Автосохранение выключено');
+  render(); refreshBar();
+}
+async function autoSaveNow(loud) {
+  if (!autoOn || !autoHandle || readOnlyTab || dataUnreadable) return false;
+  try {
+    let p = await autoHandle.queryPermission({mode: 'readwrite'});
+    if (p !== 'granted' && loud) p = await autoHandle.requestPermission({mode: 'readwrite'});
+    if (p !== 'granted') throw new Error('no permission');
+    const w = await autoHandle.createWritable();
+    await w.write(JSON.stringify(S, null, 2));
+    await w.close();
+    try { localStorage.setItem('tochka-backup', iso(new Date())); } catch (e) {}
+    autoFailed = false;
+    resetChanges();
+    saveLamp('ok', 'копия ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}));
+    if (loud) toast('Копия записана в файл');
+    return true;
+  } catch (e) {
+    autoFailed = true; refreshBar();
+    if (loud) toast('Не удалось записать копию в файл');
+    return false;
+  }
+}
+function autoSaveSoon() {
+  if (!autoOn) return;
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => autoSaveNow(false), 20000);
+}
+(async () => {
+  if (!canAuto()) return;
+  try {
+    const h = await autoTx('readonly', st => st.get('file'));
+    if (h) { autoHandle = h; autoOn = true; refreshBar(); if (typeof cur !== 'undefined' && cur === 'help') render(); }
+  } catch (e) {}
+})();
+
+/* --- Кабинет открыт в двух окнах --- */
+const TAB_ID = Math.random().toString(36).slice(2);
+let chan = null;
+try { chan = new BroadcastChannel('tochka-resheniya'); } catch (e) { chan = null; }
+if (chan) {
+  chan.onmessage = ev => {
+    const m = ev.data || {};
+    if (m.id === TAB_ID) return;
+    if (m.t === 'hello' && !readOnlyTab) chan.postMessage({t: 'busy', id: TAB_ID});
+    if (m.t === 'busy' && !readOnlyTab) goReadOnly();
+    if (m.t === 'yield') goReadOnly();
+  };
+  setTimeout(() => { try { chan.postMessage({t: 'hello', id: TAB_ID}); } catch (e) {} }, 400);
+}
+function goReadOnly() {
+  if (readOnlyTab) return;
+  readOnlyTab = true;
+  saveLamp('bad', 'только просмотр');
+  refreshBar();
+}
+function takeOver() {
+  readOnlyTab = false;
+  try { if (chan) chan.postMessage({t: 'yield', id: TAB_ID}); } catch (e) {}
+  S = load();                 // подхватываем то, что записало другое окно
+  lastSnap = snapshot();
+  hist = []; redo = [];
+  saveLamp('ok', 'сохранено');
+  refreshBar(); render();
+  toast('Теперь работаем в этом окне');
+}
+
+/* --- Браузер отказался сохранять --- */
+let alarmShown = false;
+function storageAlarm() {
+  storageBroken = true;
+  refreshBar();
+  if (alarmShown) return;
+  alarmShown = true;
+  ask('Браузер не сохраняет данные',
+    'Всё, что вы делаете сейчас, живёт только на экране и пропадёт, когда вы закроете страницу. Так бывает в режиме инкогнито, при запрете хранить данные сайтов и при переполненном диске.\n\nСохраните копию в файл прямо сейчас, потом закройте кабинет и откройте его обычным способом.',
+    'Сохранить копию', () => backupNow(), true);
+}
+
+/* --- Полоса внизу экрана: одна на все предупреждения --- */
+(function barStyle() {
+  const s = document.createElement('style');
+  s.textContent = `
+#safeBar{position:fixed; left:50%; transform:translateX(-50%); bottom:16px; z-index:60;
+  max-width:min(680px, calc(100vw - 24px)); display:none; gap:12px; align-items:center;
+  padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--surface);
+  box-shadow:0 6px 28px -12px rgba(34,48,63,.45); font-size:13.5px; color:var(--ink)}
+#safeBar.on{display:flex}
+#safeBar.warn{border-color:var(--ochre)}
+#safeBar.stop{border-color:var(--stop)}
+#safeBar .txt{min-width:0}
+#safeBar .x{border:0; background:transparent; color:var(--muted); font-size:17px; line-height:1; cursor:pointer; padding:2px 4px}
+@media (max-width:700px){#safeBar{bottom:10px; flex-wrap:wrap}}`;
+  document.head.append(s);
+})();
+
+function safeBarEl() {
+  let b = document.getElementById('safeBar');
+  if (!b) { b = document.createElement('div'); b.id = 'safeBar'; document.body.append(b); }
+  return b;
+}
+function refreshBar() {
+  const b = safeBarEl();
+  b.textContent = ''; b.className = '';
+  const put = (kind, text, btns) => {
+    b.className = 'on ' + kind;
+    b.append(el('div', {class: 'txt', text}));
+    (btns || []).forEach(x => b.append(x));
+  };
+  const btn = (label, fn, primary) => el('button', {class: 'btn btn-sm' + (primary ? ' btn-primary' : ''), onclick: fn}, label);
+  const closeX = key => el('button', {class: 'x', title: 'Скрыть на сегодня', onclick: () => {
+    try { localStorage.setItem(HIDE_KEY, iso(new Date())); } catch (e) {}
+    refreshBar();
+  }}, '×');
+
+  if (dataUnreadable) {
+    put('stop', 'Данные не читаются — кабинет пока ничего не записывает.', [btn('Что делать', offerRecovery, true)]);
+    return;
+  }
+  if (storageBroken) {
+    put('stop', 'Браузер не сохраняет данные — работа пропадёт при закрытии страницы.', [btn('Сохранить копию', backupNow, true)]);
+    return;
+  }
+  if (readOnlyTab) {
+    put('warn', 'Кабинет открыт в другом окне. Здесь — только просмотр, чтобы окна не затирали работу друг друга.', [btn('Работать здесь', takeOver, true)]);
+    return;
+  }
+  if (autoFailed) {
+    put('warn', 'Копия в файл не записалась — браузер не дал доступ.', [btn('Записать сейчас', () => autoSaveNow(true), true)]);
+    return;
+  }
+  if (autoOn) return;   // копия пишется сама, напоминать незачем
+
+  const n = changesSince();
+  let hidden = '';
+  try { hidden = localStorage.getItem(HIDE_KEY) || ''; } catch (e) {}
+  if (hidden === iso(new Date())) return;
+  const ready = n >= 8 || (n > 0 && dayFinished());
+  if (!ready) return;
+  put('warn', `С последней копии: ${n} ${plural(n, 'изменение', 'изменения', 'изменений')}.`,
+    [btn('Сохранить копию', backupNow, true), closeX()]);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { shadowSave(); autoSaveNow(false); }
+});
+window.addEventListener('pagehide', () => { shadowSave(); });
+
 dropOldDrafts();
 startTick();
 S = load();
@@ -4147,6 +4456,9 @@ lastSnap = snapshot();
 restorePlace();
 render();
 persist(true);
+shadowSave();
+refreshBar();
+setTimeout(offerRecovery, 60);
 })();
 </script>
 <script>
