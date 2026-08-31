@@ -873,14 +873,22 @@ const lessonSum = l => participants(l).reduce((sum, st) => {
 const lessonFullSum = l => participants(l).reduce((sum, st) => sum + rateFor(l, st.id), 0);
 
 const lessonEndTime = l => toMin(l.time) + l.duration;
-/* Занятие, время которого прошло, а отметки нет */
-function needsMark(l) {
-  if (isMarked(l)) return false;
+/* Занятие уже закончилось по времени */
+function lessonOver(l) {
   const now = new Date();
   const todayISO = iso(now);
   if (l.date > todayISO) return false;
   if (l.date < todayISO) return true;
   return lessonEndTime(l) <= now.getHours() * 60 + now.getMinutes();
+}
+/* Занятие прошло, а отметка стоит не у всех участников. В группе один
+   отмеченный не закрывает занятие: у остальных иначе молча потеряются
+   и посещение, и деньги. */
+function needsMark(l) {
+  if (!lessonOver(l)) return false;
+  const ps = participants(l);
+  if (!ps.length) return !isMarked(l);
+  return ps.some(st => !markOf(l, st.id));
 }
 const unmarkedLessons = () => S.lessons.filter(needsMark).sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1);
 
@@ -2889,7 +2897,7 @@ function viewReports() {
   const from = `${ry}-${pad2(rm)}-01`, to = `${ry}-${pad2(rm)}-${pad2(new Date(ry, rm, 0).getDate())}`;
   const todayISO = iso(new Date());
   const unmarked = lessonsOfStudent(st.id)
-    .filter(l => l.date >= from && l.date <= to && l.date <= todayISO && !markOf(l, st.id)).length;
+    .filter(l => l.date >= from && l.date <= to && lessonOver(l) && !markOf(l, st.id)).length;
 
   return el('div', {},
     head('Отчёты родителям', 'Собирается из отметок, тем и результатов занятий за выбранный месяц',
@@ -2923,11 +2931,15 @@ function reportBlocks(st, month) {
   const todayISO = iso(new Date());
   const monthName = `${MONN[rm-1]} ${ry}`;
 
+  /* В отчёт входят только занятия, которые уже прошли: то, что стоит
+     сегодня вечером, ещё не событие — ни для списка, ни для суммы. */
   const inMonth = lessonsOfStudent(st.id)
-    .filter(l => l.date >= from && l.date <= to && l.date <= todayISO)
+    .filter(l => l.date >= from && l.date <= to && lessonOver(l))
     .sort((a, b) => a.date < b.date ? -1 : 1);
   const mine = inMonth.filter(l => markOf(l, st.id));
-  const unmarked = inMonth.length - mine.length;
+  /* Неотмеченным считаем только то, что уже закончилось: занятие,
+     которое сегодня ещё впереди, отмечать пока нечего. */
+  const unmarked = inMonth.filter(l => !markOf(l, st.id) && lessonOver(l)).length;
   const attended = mine.filter(l => markOf(l, st.id).s === 'был');
   const missed = mine.filter(l => markOf(l, st.id).s === 'пропуск').length;
   const moved = mine.filter(l => markOf(l, st.id).s === 'перенос').length;
@@ -2942,7 +2954,9 @@ function reportBlocks(st, month) {
   const passed = r ? r.topicIds.filter(id => doneIds.has(id)).length : 0;
   const ahead = r ? r.topicIds.filter(id => !doneIds.has(id)).slice(0, 3).map(id => topic(id)).filter(Boolean) : [];
 
-  const charged = chargedOf(st.id, from, to);
+  /* Считаем деньги ровно по тем занятиям, которые вошли в отчёт. Иначе
+     сумма обгоняет список, и родитель видит счёт без занятий. */
+  const charged = mine.reduce((s, l) => { const m = markOf(l, st.id); return s + (m && m.ch ? rateFor(l, st.id) : 0); }, 0);
   const paid = paidOf(st.id, from, to);
   const bal = balanceOf(st.id);
   const money = bal < 0 ? `к оплате ${-bal} ${S.currency}`
@@ -2953,11 +2967,14 @@ function reportBlocks(st, month) {
   B.push({k:'sub', t:`${monthName} · репетитор ${S.tutor} · составлен ${fmtDate(todayISO)}`});
 
   B.push({k:'b', t:'Коротко за месяц'});
+  /* «Проведено» раньше складывалось из всего подряд, включая пропуски
+     и переносы, и спорило со строкой «Посещено». Теперь каждая строка
+     говорит ровно об одном. */
   const short = [['Показатель', 'Значение'],
-    ['Занятий проведено', mine.length],
-    ['Посещено', attended.length],
-    ['Пропущено', missed + (moved ? ` (перенесено ${moved})` : '')],
-    ['Учебных часов', hours]];
+    ['Состоялось занятий', attended.length],
+    ['Пропущено', missed]];
+  if (moved) short.push(['Перенесено', moved]);
+  short.push(['Учебных часов', hours]);
   if (r && r.topicIds.length) short.push(['Пройдено тем программы', `${passed} из ${r.topicIds.length}`]);
   short.push(['Занятия за месяц', `${charged} ${S.currency}`]);
   short.push(['Оплачено за месяц', `${paid} ${S.currency}`]);
@@ -4134,10 +4151,27 @@ function showLinkDialog(text) {
    из методики и записей занятий — репетитор вставляет его в любой чат с ИИ. */
 const AI_CHATS = [['Claude', 'https://claude.ai/new'], ['ChatGPT', 'https://chatgpt.com/']];
 
+/* Имена в русском тексте стоят в разных падежах: «Лейла», «Лейле», «Лейлой».
+   Поэтому ищем не точное совпадение, а начало слова с любым окончанием.
+   Названия групп («6 класс, 86 школа») заменяем только целиком —
+   иначе от текста ничего не останется. */
 function anonymize(text) {
   let out = text;
-  for (const st of S.students) if (st.name) out = out.split(st.name).join('ученик');
-  for (const g of S.groups) if (g.name) out = out.split(g.name).join('группа');
+  const swapWhole = (name, to) => { if (name) out = out.split(name).join(to); };
+  const swapWords = (name, to) => {
+    if (!name) return;
+    swapWhole(name, to);
+    for (const w of String(name).trim().split(/\s+/)) {
+      if (w.length < 3) continue;
+      const stem = w.length >= 6 ? w.slice(0, -2) : w.slice(0, -1);
+      const esc = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp('(^|[^A-Za-zА-Яа-яЁё])' + esc + '[А-Яа-яЁё]{0,3}(?=[^A-Za-zА-Яа-яЁё]|$)', 'gi');
+      out = out.replace(re, '$1' + to);
+    }
+  };
+  for (const st of S.students) { swapWords(st.name, 'ученик'); swapWords(st.parent, 'родитель'); }
+  for (const g of S.groups) swapWhole(g.name, 'группа');
+  swapWords(S.tutor, 'репетитор');
   return out;
 }
 
@@ -4159,7 +4193,9 @@ function aiDialog(title, build) {
         'Скопируйте текст и вставьте в чат с ИИ. Кабинет ничего сам не отправляет — данные уходят только тогда, когда вы вставите их в чат.'),
       ta,
       el('label', {class:'row', style:'gap:8px; margin-top:10px'}, cb,
-        el('span', {class:'meta', text:'Убрать имена — вместо них «ученик»'})),
+        el('span', {class:'meta', text:'Убрать имена — учеников, родителей, групп и ваше'})),
+      el('div', {class:'meta', style:'font-size:12px; margin-top:4px',
+        text:'Даты, темы и суммы остаются — они нужны, чтобы ответ был по делу.'}),
       el('div', {class:'row', style:'margin-top:12px'},
         ...AI_CHATS.map(([n, u]) => el('a', {class:'btn btn-sm', href:u, target:'_blank', rel:'noopener'}, 'Открыть ' + n)))),
     el('div', {class:'dlg-f'},
