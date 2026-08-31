@@ -1696,6 +1696,9 @@ function viewToday() {
               el('button', {class:'btn btn-primary btn-sm', onclick:() => openLesson(nowL.id)}, 'Открыть карточку'),
               (owner(nowL)||{}).format === 'онлайн'
                 ? el('button', {class:'btn btn-sm', onclick:() => openMeet(nowL.ownerType, nowL.ownerId)}, 'Войти на доску')
+                : null,
+              (owner(nowL)||{}).format === 'онлайн'
+                ? el('button', {class:'btn btn-ghost btn-sm', onclick:() => copyMeet(nowL.ownerType, nowL.ownerId)}, 'Скопировать ссылку')
                 : null),
             nextL ? el('div', {class:'meta', style:'margin-top:12px; padding-top:12px; border-top:1px solid var(--line); font-size:12.5px',
               text: `Дальше: ${nextL.time} · ${ownerName(nextL)}`}) : null)
@@ -1707,7 +1710,10 @@ function viewToday() {
               el('div', {class:'row'},
                 el('button', {class:'btn btn-primary btn-sm', onclick:() => openLesson(nextL.id)}, 'Открыть карточку'),
                 (owner(nextL)||{}).format === 'онлайн'
-                  ? el('button', {class:'btn btn-sm', onclick:() => openMeet(nowL.ownerType, nowL.ownerId)}, 'Войти на доску')
+                  ? el('button', {class:'btn btn-sm', onclick:() => openMeet(nextL.ownerType, nextL.ownerId)}, 'Войти на доску')
+                  : null,
+                (owner(nextL)||{}).format === 'онлайн'
+                  ? el('button', {class:'btn btn-ghost btn-sm', onclick:() => copyMeet(nextL.ownerType, nextL.ownerId)}, 'Скопировать ссылку')
                   : null))
           : (() => {
               /* На сегодня всё — показываем ближайшее занятие следующих дней,
@@ -2309,7 +2315,9 @@ function viewMethod() {
   const clsSel = el('select', {onchange: e => { ui.bankClass = e.target.value; ui.topicId = null; render(); }},
     ...classes.map(c => el('option', {value:c, selected:c === ui.bankClass},
       `${c} класс${(S.topicBank[c]||[]).length ? ' · ' + S.topicBank[c].length + ' ' + plural(S.topicBank[c].length,'тема','темы','тем') : ' · пусто'}`)));
-  const search = el('input', {type:'text', value: ui.bankQuery || '', placeholder:'Название, цель, раздел',
+  /* У поля есть имя: по нему кабинет возвращает в него курсор после
+     перерисовки списка тем (иначе следующая буква уходит в пустоту). */
+  const search = el('input', {type:'text', id:'bankSearch', value: ui.bankQuery || '', placeholder:'Название, цель, раздел',
     oninput: e => { ui.bankQuery = e.target.value; clearTimeout(searchT); searchT = setTimeout(render, 220); }});
 
   const left = el('div', {class:'card', style:'display:grid; gap:14px; align-content:start'},
@@ -2856,9 +2864,20 @@ function viewReports() {
   const blocks = reportBlocks(st, month);
   const text = buildReport(st, month);
   const noteKey = st.id + ':' + month;
-  const noteBox = el('textarea', {rows:3, style:'width:100%',
-    placeholder:'Что важно сказать родителю: как идут дела, что получается, над чем поработать дома. Попадёт в отчёт отдельным блоком.',
-    value: (S.reportNotes || {})[noteKey] || ''});
+  const noteBox = el('textarea', {rows:5, style:'width:100%',
+    placeholder:'Что важно сказать родителю: как идут дела, что получается, над чем поработать дома. Попадёт в отчёт отдельным блоком.'});
+  /* Текст ставим свойством, а не в разметку: иначе после перерисовки
+     поле оказывается пустым, а написанное теряется при следующей правке. */
+  noteBox.value = (S.reportNotes || {})[noteKey] || '';
+  let noteTimer;
+  /* Пока пишут — сохраняем тихо, не перерисовывая экран, чтобы не сбить курсор.
+     Когда ушли из поля — записываем шагом, который можно отменить. */
+  noteBox.addEventListener('input', () => {
+    S.reportNotes = S.reportNotes || {};
+    S.reportNotes[noteKey] = noteBox.value.trim();
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => persist(true), 400);
+  });
   noteBox.addEventListener('change', () => {
     S.reportNotes = S.reportNotes || {};
     S.reportNotes[noteKey] = noteBox.value.trim();
@@ -3299,6 +3318,22 @@ function openLessonCard(L, isNew) {
   // блок «После урока» — отметка по каждому ученику отдельно
   const o = draft.ownerType === 'group' ? group(draft.ownerId) : student(draft.ownerId);
   const marks = JSON.parse(JSON.stringify(draft.marks || {}));
+  /* Кнопки доски показываются только для онлайн-занятий и пересчитываются
+     сразу, как только в списке выбрали другого ученика или группу. */
+  const meetBtn = el('button', {class:'btn btn-sm', type:'button',
+    onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openMeet(ot, oid); }}, 'Войти на доску');
+  const copyBtn = el('button', {class:'btn btn-ghost btn-sm', type:'button',
+    onclick:() => { const [ot, oid] = ownerSel.value.split(':'); copyMeet(ot, oid); }}, 'Скопировать ссылку');
+  function syncMeetBtns() {
+    const [ot, oid] = ownerSel.value.split(':');
+    const own = ot === 'group' ? group(oid) : student(oid);
+    const online = (own || {}).format === 'онлайн';
+    meetBtn.style.display = online ? '' : 'none';
+    copyBtn.style.display = online ? '' : 'none';
+  }
+  ownerSel.addEventListener('change', syncMeetBtns);
+  syncMeetBtns();
+
   const afterBox = el('div', {class:'after'});
   const sumLine = el('div', {class:'sum-line'});
   const rateNote = el('div', {class:'meta', style:'font-size:12.5px; margin-top:4px'});
@@ -3379,10 +3414,7 @@ function openLessonCard(L, isNew) {
       el('label', {class:'field'}, el('span',{},'Длительность'), durSel)),
     el('div', {class:'row'},
       el('button', {class:'btn btn-sm', type:'button', onclick:() => openPicker(draft.id, (d, t) => { dateIn.value = d; timeIn.value = t; checkClash(); })}, 'Выбрать время в расписании'),
-      (o?.format === 'онлайн') ? el('button', {class:'btn btn-sm', type:'button',
-        onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openMeet(ot, oid); }}, 'Войти на доску') : null,
-      (o?.format === 'онлайн') ? el('button', {class:'btn btn-ghost btn-sm', type:'button',
-        onclick:() => { const [ot, oid] = ownerSel.value.split(':'); copyMeet(ot, oid); }}, 'Скопировать ссылку') : null,
+      meetBtn, copyBtn,
       warn),
     methodBox,
     matBox,
@@ -3643,11 +3675,13 @@ function editStudent(id) {
     el('label', {class:'field'}, el('span',{},'Заметка'), note)
   ], () => {
     if (!name.value.trim()) return 'Введите имя.';
+    if (meetUrlIn.value.trim() && !normalizeMeet(meetUrlIn.value))
+      return 'Ссылка на видео и доску не похожа на адрес. Скопируйте её из адресной строки браузера — или очистите поле, тогда кабинет создаст ссылку сам.';
     const d = {
       name:name.value.trim(), cls:cls.value.trim() || '6', type:type.value,
       groupId: type.value === 'группа' ? (grp.value || null) : null,
       format:fmt.value, duration:+dur.value, rate:+rate.value || 0, payMode: payMode.value,
-      parent:parent.value.trim(), phone:phone.value.trim(), meetUrl: meetUrlIn.value.trim(), note:note.value.trim()
+      parent:parent.value.trim(), phone:phone.value.trim(), meetUrl: normalizeMeet(meetUrlIn.value), note:note.value.trim()
     };
     if (st) {
       S.groups.forEach(g => g.memberIds = g.memberIds.filter(m => m !== st.id));
@@ -3693,8 +3727,10 @@ function editGroup(id) {
       el('div', {style:'display:grid;gap:6px;margin-top:8px'}, boxes))
   ], () => {
     if (!name.value.trim()) return 'Введите название.';
+    if (meetUrlIn.value.trim() && !normalizeMeet(meetUrlIn.value))
+      return 'Ссылка на видео и доску не похожа на адрес. Скопируйте её из адресной строки браузера — или очистите поле, тогда кабинет создаст ссылку сам.';
     const memberIds = boxes.map(b => b.querySelector('input')).filter(i => i.checked).map(i => i.dataset.sid);
-    const d = {name:name.value.trim(), cls:cls.value.trim() || '6', format:fmt.value, duration:+dur.value, rate:+rate.value || 0, meetUrl: meetUrlIn.value.trim(), memberIds};
+    const d = {name:name.value.trim(), cls:cls.value.trim() || '6', format:fmt.value, duration:+dur.value, rate:+rate.value || 0, meetUrl: normalizeMeet(meetUrlIn.value), memberIds};
     let gid;
     if (g) { Object.assign(g, d); gid = g.id; }
     else { gid = uid(); S.groups.push({id:gid, ...d}); S.routes.push({id:uid(), ownerType:'group', ownerId:gid, topicIds:[]}); }
@@ -4023,10 +4059,27 @@ function meetSalt() {
 }
 const MEET_BASE = () => (S.meetBase || 'https://meet.jit.si/').replace(/\/*$/, '/');
 
+/* Своя ссылка часто копируется без начала — «zoom.us/j/123» это тоже адрес.
+   Начало дописываем сами; то, что адресом быть не может, не принимаем вовсе
+   (проверка стоит в форме ученика и группы). */
+function normalizeMeet(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (/^javascript:|^data:|^file:/i.test(v)) return '';
+  if (/^https?:\/\//i.test(v)) return v;
+  if (!/\s/.test(v) && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}([\/?#]|$)/i.test(v)) return 'https://' + v;
+  return '';
+}
+/* Своя это ссылка или кабинет создал её сам */
+function meetIsOwn(ownerType, ownerId) {
+  const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
+  return !!(o && normalizeMeet(o.meetUrl));
+}
 function meetUrl(ownerType, ownerId) {
   const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
   if (!o) return '';
-  if (o.meetUrl && /^https?:\/\//i.test(o.meetUrl.trim())) return o.meetUrl.trim();
+  const own = normalizeMeet(o.meetUrl);
+  if (own) return own;
   const tail = (ownerType === 'group' ? 'g' : 's') + String(ownerId).replace(/[^a-z0-9]/gi, '').slice(-6);
   return MEET_BASE() + 'tochka-' + meetSalt() + '-' + tail;
 }
@@ -4044,13 +4097,36 @@ function openMeet(ownerType, ownerId) {
 function copyMeet(ownerType, ownerId) {
   const url = meetUrl(ownerType, ownerId);
   if (!url) return;
-  const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
-  const text = `Ссылка на занятие (видео и общая доска): ${url}\nОткрывается в браузере, ничего устанавливать не нужно.`;
-  if (navigator.clipboard) {
+  /* Обещание «ничего устанавливать не нужно» верно только для нашей доски:
+     чужой сервис вроде Zoom вполне может попросить программу. */
+  const text = `Ссылка на занятие (видео и общая доска): ${url}` +
+    (meetIsOwn(ownerType, ownerId) ? '' : '\nОткрывается в браузере, ничего устанавливать не нужно.');
+  const byHand = () => showLinkDialog(text);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(
-      () => toast('Ссылка скопирована — отправьте ученику'),
-      () => toast('Не удалось скопировать'));
-  } else toast('Ссылка: ' + url);
+      () => toast('Ссылка скопирована — отправьте ученику'), byHand);
+  } else byHand();
+}
+
+/* Если браузер не дал скопировать — показываем текст, чтобы взять его руками */
+function showLinkDialog(text) {
+  const dlg = $('#formDlg');
+  const ta = el('textarea', {rows:5, style:'width:100%; font-size:13px; line-height:1.55'});
+  ta.value = text;
+  dlg.textContent = '';
+  dlg.append(
+    el('div', {class:'dlg-h'},
+      el('h2', {text:'Ссылка на занятие'}),
+      el('button', {class:'btn btn-ghost btn-sm', onclick:() => dlg.close()}, '✕')),
+    el('div', {class:'dlg-b'},
+      el('div', {class:'meta', style:'margin-bottom:10px'},
+        'Скопировать сам браузер не дал. Выделите текст и скопируйте сочетанием Ctrl+C.'),
+      ta),
+    el('div', {class:'dlg-f'},
+      el('button', {class:'btn', onclick:() => dlg.close()}, 'Закрыть'),
+      el('button', {class:'btn btn-primary', onclick:() => { ta.focus(); ta.select(); }}, 'Выделить текст')));
+  dlg.showModal();
+  setTimeout(() => { ta.focus(); ta.select(); }, 50);
 }
 
 /* ═══════════ ЗАПРОСЫ ДЛЯ ИИ ═══════════
@@ -4261,9 +4337,24 @@ const VIEWS = {
 function render() {
   renderNav();
   const v = $('#view');
+  /* Экран строится заново целиком. Если курсор стоял в поле с именем —
+     например, в поиске по методике, — вернём его туда вместе с местом набора. */
+  const act = document.activeElement;
+  const keepId = act && act.id && v.contains(act) ? act.id : null;
+  let caret = null;
+  if (keepId) { try { caret = act.selectionStart; } catch (e) { caret = null; } }
   v.textContent = '';
   try { v.append(VIEWS[cur]()); }
   catch (e) { v.append(el('div', {class:'empty', text:'Не удалось показать раздел: ' + e.message})); }
+  if (keepId) {
+    const again = document.getElementById(keepId);
+    if (again) {
+      again.focus();
+      const n = (again.value || '').length;
+      const at = caret === null ? n : Math.min(caret, n);
+      try { again.setSelectionRange(at, at); } catch (e) {}
+    }
+  }
 }
 
 /* ═══════════ СОХРАННОСТЬ: ЗАПАСНАЯ КОПИЯ, НАПОМИНАНИЕ, АВТОСОХРАНЕНИЕ ═══════════ */
