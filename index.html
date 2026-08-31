@@ -483,6 +483,138 @@ th.r,td.r{text-align:right}
   .now .ln{left:48px}
   .dlg-h,.dlg-b,.dlg-f{padding-left:16px; padding-right:16px}
 }
+
+/* ============ ГЛУБИНА И ДВИЖЕНИЕ ============
+   Плоский лист превращаем в стопку слоёв: у карточек появляется мягкая тень
+   и светлая грань сверху, под курсором они чуть приподнимаются и поворачиваются,
+   разделы сменяются плавно. Всё движение выключается, если в системе
+   стоит запрет на анимацию. */
+:root{
+  --sh-soft:0 1px 1px rgba(34,48,63,.04), 0 2px 6px -2px rgba(34,48,63,.10), 0 12px 28px -18px rgba(34,48,63,.26);
+  --sh-lift:0 2px 4px rgba(34,48,63,.06), 0 10px 22px -8px rgba(34,48,63,.18), 0 26px 50px -28px rgba(34,48,63,.42);
+  --glow:0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent), 0 10px 26px -12px color-mix(in srgb, var(--accent) 55%, transparent);
+  --ease:cubic-bezier(.2,.7,.2,1);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --sh-soft:0 1px 1px rgba(0,0,0,.3), 0 2px 8px -2px rgba(0,0,0,.45), 0 14px 30px -18px rgba(0,0,0,.8);
+    --sh-lift:0 2px 6px rgba(0,0,0,.4), 0 12px 26px -8px rgba(0,0,0,.55), 0 30px 60px -30px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --sh-soft:0 1px 1px rgba(0,0,0,.3), 0 2px 8px -2px rgba(0,0,0,.45), 0 14px 30px -18px rgba(0,0,0,.8);
+  --sh-lift:0 2px 6px rgba(0,0,0,.4), 0 12px 26px -8px rgba(0,0,0,.55), 0 30px 60px -30px rgba(0,0,0,.9);
+}
+
+/* Фон перестаёт быть ровной заливкой: сверху едва заметный свет */
+body{
+  background:
+    radial-gradient(1200px 460px at 18% -8%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+    radial-gradient(900px 380px at 96% 0%, color-mix(in srgb, var(--ochre) 9%, transparent), transparent 72%),
+    var(--ground);
+  background-attachment:fixed;
+}
+
+/* Карточки: тень, светлая грань сверху, отклик на курсор */
+.card{
+  box-shadow:var(--sh-soft);
+  background:linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, #fff) 0%, var(--surface) 42%);
+  transition:box-shadow .22s var(--ease), transform .22s var(--ease), border-color .2s;
+}
+@media (hover:hover) and (prefers-reduced-motion: no-preference){
+  .card:hover{ transform:translateY(-2px); box-shadow:var(--sh-lift); }
+}
+
+/* Занятие в ленте дня: приподнимается и слегка поворачивается вслед за курсором */
+.lesson{
+  position:relative;
+  box-shadow:var(--sh-soft);
+  transform-style:preserve-3d;
+  transition:transform .2s var(--ease), box-shadow .2s var(--ease), border-color .18s;
+}
+.lesson::after{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; opacity:0;
+  background:radial-gradient(220px circle at var(--mx,50%) var(--my,50%),
+    color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%);
+  transition:opacity .25s var(--ease);
+}
+@media (hover:hover) and (prefers-reduced-motion: no-preference){
+  .lesson:hover{ transform:translateX(2px) }
+  .lesson.is-tilt{
+    transform:perspective(760px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) translateY(-3px) scale(1.006);
+    box-shadow:var(--sh-lift);
+  }
+  .lesson.is-tilt::after{ opacity:1 }
+}
+
+/* Кнопки: отклик на нажатие, у главной — объём и свечение */
+.btn{ transition:border-color .16s, background .16s, box-shadow .18s var(--ease), transform .12s var(--ease); }
+.btn:active{ transform:translateY(1px) scale(.985) }
+.btn-primary{
+  background:linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, var(--accent) 100%);
+  box-shadow:0 1px 0 rgba(255,255,255,.25) inset, 0 8px 18px -10px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.btn-primary:hover{ box-shadow:var(--glow) }
+
+/* Разделы слева: у выбранного мягкая подсветка и метка сбоку */
+.nav button{ position:relative; transition:background .18s, color .18s, transform .16s var(--ease) }
+.nav button:hover{ transform:translateX(2px) }
+.nav button[aria-current="page"]{
+  background:linear-gradient(90deg, rgba(255,255,255,.20), rgba(255,255,255,.07));
+  box-shadow:0 6px 16px -12px rgba(0,0,0,.9);
+}
+.nav button[aria-current="page"]::before{
+  content:''; position:absolute; left:-12px; top:8px; bottom:8px; width:3px; border-radius:0 3px 3px 0;
+  background:var(--terra);
+}
+
+/* Метки состояния и кружки — чуть объёмнее */
+.chip{ box-shadow:0 1px 0 rgba(255,255,255,.35) inset }
+.tl-dot{ box-shadow:0 0 0 3px var(--ground) }
+
+/* Окна: мягкое появление и матовое стекло позади */
+dialog::backdrop{ background:rgba(16,26,36,.44) }
+@supports (backdrop-filter: blur(3px)){
+  dialog::backdrop{ backdrop-filter:blur(3px) }
+}
+@media (prefers-reduced-motion: no-preference){
+  dialog[open]{ animation:dlg-in .24s var(--ease) both }
+  @keyframes dlg-in{ from{ opacity:0; transform:translateY(10px) scale(.985) } }
+}
+
+/* Смена раздела: старый экран уходит, новый приходит снизу */
+#view{ view-transition-name:mainview }
+@media (prefers-reduced-motion: no-preference){
+  ::view-transition-old(mainview){ animation:vt-out .16s var(--ease) both }
+  ::view-transition-new(mainview){ animation:vt-in .28s var(--ease) both }
+  @keyframes vt-in{ from{ opacity:0; transform:translateY(10px) } }
+  @keyframes vt-out{ to{ opacity:0; transform:translateY(-6px) } }
+
+  /* Карточки нового раздела появляются друг за другом */
+  #view.fresh .card, #view.fresh .lesson{ animation:rise .38s var(--ease) both }
+  #view.fresh .card:nth-of-type(2), #view.fresh .lesson:nth-of-type(2){ animation-delay:.04s }
+  #view.fresh .card:nth-of-type(3), #view.fresh .lesson:nth-of-type(3){ animation-delay:.08s }
+  #view.fresh .card:nth-of-type(4), #view.fresh .lesson:nth-of-type(4){ animation-delay:.12s }
+  #view.fresh .card:nth-of-type(n+5), #view.fresh .lesson:nth-of-type(n+5){ animation-delay:.15s }
+  @keyframes rise{ from{ opacity:0; transform:translateY(12px) } }
+}
+
+/* Кольцо дня */
+.ring-wrap{display:flex; align-items:center; gap:16px}
+.ring{position:relative; display:grid; place-items:center; flex:none}
+.ring svg{display:block; overflow:visible}
+.ring-v{filter:drop-shadow(0 2px 6px color-mix(in srgb, var(--accent) 45%, transparent))}
+.ring-n{position:absolute; text-align:center; line-height:1.05}
+.ring-n b{font-family:var(--mono); font-size:22px; font-variant-numeric:tabular-nums; display:block}
+.ring-n i{font-style:normal; font-size:11px; color:var(--muted)}
+.ring-wrap .k{font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); font-weight:600}
+@media (prefers-reduced-motion: no-preference){
+  .ring-v{ animation:ring-in .9s var(--ease) both }
+  @keyframes ring-in{ from{ stroke-dashoffset:var(--c) } }
+}
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation-duration:.001ms !important; transition-duration:.001ms !important }
+}
 </style>
 
 <script>
@@ -1667,16 +1799,16 @@ let searchT;
 
 let navHist = [];
 function pushNav() { navHist.push({cur, personId: ui.personId}); if (navHist.length > 40) navHist.shift(); }
-function go(id) { if (id !== cur || ui.personId) pushNav(); cur = id; ui.personId = null; window.scrollTo(0,0); render(); }
-function openPerson(key) { pushNav(); ui.personId = key; ui.histAll = false; window.scrollTo(0,0); render(); }
+function go(id) { if (id !== cur || ui.personId) pushNav(); cur = id; ui.personId = null; window.scrollTo(0,0); renderSmooth(); }
+function openPerson(key) { pushNav(); ui.personId = key; ui.histAll = false; window.scrollTo(0,0); renderSmooth(); }
 function navBack() {
   const p = navHist.pop();
   if (!p) {
-    if (ui.personId) { ui.personId = null; window.scrollTo(0,0); render(); return; }
+    if (ui.personId) { ui.personId = null; window.scrollTo(0,0); renderSmooth(); return; }
     if (cur === 'today') { toast('Это первый экран'); return; }
-    cur = 'today'; window.scrollTo(0,0); render(); return;
+    cur = 'today'; window.scrollTo(0,0); renderSmooth(); return;
   }
-  cur = p.cur; ui.personId = p.personId; window.scrollTo(0,0); render();
+  cur = p.cur; ui.personId = p.personId; window.scrollTo(0,0); renderSmooth();
 }
 /* Запоминаем, на каком экране остановились */
 function rememberPlace() {
@@ -1881,9 +2013,29 @@ function viewToday() {
       'В группе кнопки ставят одинаковую отметку всем участникам. Если кто-то один пропустил — откройте карточку и отметьте его отдельно.')
   ) : null;
 
+  /* Кольцо дня вместо сухой цифры: закрашенная часть — проведённые занятия.
+     Оно дорисовывается на глазах, когда открываешь экран. */
+  const dayRing = (done, total) => {
+    const C = 2 * Math.PI * 34;
+    const off = total ? C * (1 - done / total) : C;
+    return el('div', {class:'ring-wrap'},
+      el('div', {class:'ring', html:
+        `<svg viewBox="0 0 80 80" width="82" height="82" aria-hidden="true">
+           <circle cx="40" cy="40" r="34" fill="none" stroke="var(--line)" stroke-width="7"></circle>
+           <circle class="ring-v" cx="40" cy="40" r="34" fill="none" stroke="var(--accent)" stroke-width="7"
+             stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+             style="--c:${C.toFixed(1)}" transform="rotate(-90 40 40)"></circle>
+         </svg>
+         <div class="ring-n"><b>${done}</b><i>из ${total}</i></div>`}),
+      el('div', {},
+        el('div', {class:'k', text:'Занятий сегодня'}),
+        el('div', {class:'meta', style:'font-size:13px; margin-top:2px',
+          text: total ? (done === total ? 'все проведены' : `проведено ${done}, впереди ${total - done}`) : 'занятий не запланировано'})));
+  };
+
   const side = el('div', {class:'side-block'},
     el('div', {class:'card', style:'display:grid; gap:20px'},
-      el('div', {class:'stat'}, el('div',{class:'k',text:'Занятий сегодня'}), el('div',{class:'v', html:`${list.length}<span style="font-size:14px;color:var(--muted)"> / проведено ${doneCnt}</span>`})),
+      dayRing(doneCnt, list.length),
       el('div', {class:'stat'}, el('div',{class:'k',text:'На этой неделе'}), el('div',{class:'v', text:String(weekCnt)})),
       el('div', {class:'stat'}, el('div',{class:'k',text:'Ждёт оплаты'}), el('div',{class:'v', html:money(dueSum)}))
     ),
@@ -3562,6 +3714,8 @@ function viewHelp() {
           el('div', {class:'meta', style:'font-size:13px'},
             'Способ, который работает всегда: поставьте курсор в поле и включите диктовку самого устройства. На Windows — Win+H, на телефоне — значок микрофона на клавиатуре.'),
           el('div', {class:'meta', style:'font-size:13px'},
+            'Знаки препинания кабинет расставляет сам. Остановились на секунду — фраза закрывается точкой, следующая начинается с заглавной буквы. Скажите «с новой строки» — будет абзац; «вопросительный знак», «восклицательный знак», «двоеточие» — поставится знак. Если нужна точка или запятая посреди фразы, скажите «поставь точку» или «поставь запятую»: просто слова «точка» и «запятая» кабинет не трогает, чтобы не портить математику — «точка пересечения» и «три запятая пять» останутся словами.'),
+          el('div', {class:'meta', style:'font-size:13px'},
             speechOK()
               ? 'Второй способ: кнопка «🎤 Голос» рядом с большими полями — она уже работает в этом браузере. Нажали, сказали, нажали «Стоп».'
               : 'Кнопка «🎤 Голос» рядом с полями появляется в браузере Chrome, когда кабинет открыт по адресу в интернете. В этом браузере её нет — пользуйтесь диктовкой устройства.'),
@@ -4131,6 +4285,42 @@ function micStop(quiet) {
   m.btn.classList.remove('btn-primary');
   if (!quiet) toast('Запись остановлена');
 }
+/* Распознавание речи знаков препинания не ставит: браузер отдаёт голый поток слов.
+   Кабинет расставляет их сам по двум признакам.
+   Первое — пауза. Браузер отдаёт кусок текста, когда репетитор остановился,
+   и такой кусок считается предложением: первая буква заглавная, в конце точка.
+   Второе — произнесённые команды. Берём только те, что не спутать с математикой:
+   «поставь точку» — знак, а «точка пересечения» останется словом. */
+const SAY = [
+  [/(^|[\s,;:—-])\s*с\s+новой\s+строки(?=$|[\s.,!?])/gi, '\n'],
+  [/(^|[\s,;:—-])\s*(новый\s+абзац|с\s+красной\s+строки|новая\s+строка)(?=$|[\s.,!?])/gi, '\n'],
+  [/(^|\s)\s*(поставь|поставить|ставим)\s+точку(?=$|[\s.,!?])/gi, '.'],
+  [/(^|\s)\s*(поставь|поставить|ставим)\s+запятую(?=$|[\s.,!?])/gi, ','],
+  [/(^|\s)\s*(вопросительный\s+знак|знак\s+вопроса)(?=$|[\s.,!?])/gi, '?'],
+  [/(^|\s)\s*(восклицательный\s+знак)(?=$|[\s.,!?])/gi, '!'],
+  [/(^|\s)\s*двоеточие(?=$|[\s.,!?])/gi, ':'],
+  [/(^|\s)\s*точка\s+с\s+запятой(?=$|[\s.,!?])/gi, ';']
+];
+const capFirst = s => s.replace(/^([«"(]?\s*)(\p{Ll})/u, (m, a, b) => a + b.toUpperCase());
+
+function tidySpeech(raw) {
+  let s = ' ' + String(raw || '').trim();
+  for (const [re, sign] of SAY) s = s.replace(re, sign);
+  s = s.replace(/\s+([.,;:!?])/g, '$1')        // пробел перед знаком не нужен
+       .replace(/([.,;:!?])(?=[^\s.,;:!?])/g, '$1 ')
+       .replace(/[ \t]+/g, ' ')
+       .replace(/ *\n */g, '\n')
+       .trim();
+  if (!s) return '';
+  /* Пауза = конец мысли: ставим точку, если фраза не однословная
+     и не закончена знаком сама. */
+  const words = s.split(/\s+/).length;
+  if (words > 1 && !/[.!?:,;—\n]$/.test(s)) s += '.';
+  /* Заглавные в начале и после каждой точки */
+  s = capFirst(s).replace(/([.!?]\s+|\n)(\p{Ll})/gu, (m, a, b) => a + b.toUpperCase());
+  return s;
+}
+
 function micToggle(ta, btn) {
   if (mic && mic.ta === ta) { micStop(); return; }
   micStop(true);
@@ -4145,9 +4335,13 @@ function micToggle(ta, btn) {
   rec.onresult = e => {
     let add = '';
     for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) add += e.results[i][0].transcript + ' ';
-    add = add.trim();
+    add = tidySpeech(add);
     if (!add) return;
-    ta.value = (base ? base.replace(/\s*$/, '') + ' ' : '') + add;
+    /* Новая фраза приклеивается к прежней: после точки — с пробела,
+       после «с новой строки» — с новой строки. */
+    const before = base.replace(/[ \t]+$/, '');
+    const glue = !before ? '' : (/\n$/.test(before) ? '' : ' ');
+    ta.value = before + glue + add;
     base = ta.value;
     ta.dispatchEvent(new Event('input', {bubbles:true}));
   };
@@ -4163,7 +4357,7 @@ function micToggle(ta, btn) {
     mic = { rec, ta, btn };
     btn.textContent = '⏹ Стоп';
     btn.classList.add('btn-primary');
-    toast('Говорите — записываю');
+    toast('Говорите — записываю. Пауза ставит точку, «с новой строки» — абзац');
   } catch (e) { toast('Не удалось включить микрофон'); }
 }
 
@@ -5193,6 +5387,57 @@ const VIEWS = {
   today: viewToday, people: viewPeople, schedule: viewSchedule, routes: viewRoutes,
   bank: viewMethod, materials: viewMaterials, money: viewMoney, reports: viewReports, help: viewHelp
 };
+/* Карточка занятия поворачивается вслед за курсором: небольшой наклон
+   и световое пятно там, где мышь. На телефоне и при запрете анимации — ничего. */
+function liveTilt() {
+  const fine = window.matchMedia('(hover:hover)').matches;
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!fine || calm) return;
+  const view = $('#view');
+  let node = null, raf = 0, ev = null;
+  const draw = () => {
+    raf = 0;
+    if (!node || !ev) return;
+    const r = node.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
+    node.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+    node.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+    node.style.setProperty('--ry', ((x - .5) * 5).toFixed(2) + 'deg');
+    node.style.setProperty('--rx', ((.5 - y) * 4).toFixed(2) + 'deg');
+  };
+  const clear = () => {
+    if (!node) return;
+    node.classList.remove('is-tilt');
+    node.style.removeProperty('--rx'); node.style.removeProperty('--ry');
+    node = null;
+  };
+  view.addEventListener('mousemove', e => {
+    const t = e.target.closest ? e.target.closest('.lesson') : null;
+    if (t !== node) { clear(); node = t; if (node) node.classList.add('is-tilt'); }
+    if (!node) return;
+    ev = e;
+    if (!raf) raf = requestAnimationFrame(draw);
+  }, {passive:true});
+  view.addEventListener('mouseleave', clear, {passive:true});
+}
+
+/* Смена раздела с плавным переходом. Обычная перерисовка (набор в поле,
+   пересчёт списка) идёт без анимации, чтобы ничего не мигало. */
+function renderSmooth() {
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const after = () => {
+    const v = $('#view');
+    if (calm) return;
+    v.classList.remove('fresh');
+    void v.offsetWidth;
+    v.classList.add('fresh');
+    setTimeout(() => v.classList.remove('fresh'), 700);
+  };
+  if (!document.startViewTransition || calm) { render(); after(); return; }
+  try { document.startViewTransition(() => render()).finished.finally(after); }
+  catch (e) { render(); after(); }
+}
+
 function render() {
   renderNav();
   const v = $('#view');
@@ -5474,6 +5719,7 @@ S = load();
 lastSnap = snapshot();
 restorePlace();
 render();
+liveTilt();
 persist(true);
 shadowSave();
 refreshBar();
