@@ -3534,7 +3534,7 @@ function viewHelp() {
               ? 'Второй способ: кнопка «🎤 Голос» рядом с большими полями — она уже работает в этом браузере. Нажали, сказали, нажали «Стоп».'
               : 'Кнопка «🎤 Голос» рядом с полями появляется в браузере Chrome, когда кабинет открыт по адресу в интернете. В этом браузере её нет — пользуйтесь диктовкой устройства.'),
           el('div', {class:'meta', style:'font-size:13px'},
-            'В карточке занятия есть поле «Расскажите про занятие»: наговорите всё подряд и нажмите «Разложить по полям» — кабинет сам разнесёт по «Результату», «Домашнему заданию» и отметке.')),
+            'В карточке занятия есть поле «Расскажите про занятие»: наговорите всё подряд и нажмите «Разложить по полям» — кабинет сам разнесёт по «Результату», «Домашнему заданию» и отметке. Сам рассказ остаётся в поле и сохраняется вместе с карточкой, поэтому надиктованное не пропадёт, даже если разобрать его не вышло.')),
         el('div', {class:'meta', style:'margin-top:12px'}, 'Рабочие часы задают, какую сетку показывать в расписании и в какое время подбирать свободное окно. Занятие вне этих часов всё равно покажется — сетка растянется под него. Данные лежат в этом браузере — ни ко мне, ни куда-либо ещё они не уходят. Чтобы перенести кабинет на другой компьютер, выгрузите файл и загрузите его там. «Восстановить программу 5–8» возвращает исходное тематическое планирование, если темы случайно изменили или удалили — ваши личные заметки к темам при этом пропадут. «Загрузить пример» наполняет кабинет учебными данными, чтобы посмотреть, как всё устроено; «Очистить всё» стирает весь кабинет целиком, включая ваши темы и материалы.'))));
 }
 
@@ -3822,41 +3822,70 @@ function openLessonCard(L, isNew) {
      разложит по полям, а спорное оставит на виду. */
   const tellIn = el('textarea', {style:'min-height:70px',
     placeholder:'Например: разобрали дроби, путает знаменатели, задала номера 12–15, пришла вовремя'});
+  tellIn.value = draft.tell || '';
   const restIn = el('textarea', {style:'min-height:44px', placeholder:'сюда попадёт то, что кабинет не понял'});
   const restWrap = el('div', {style:'display:none; margin-top:8px'},
     el('div', {class:'meta', style:'font-size:12px; margin-bottom:4px'}, 'Не разобрано — перенесите руками, куда нужно'),
     restIn);
+  /* Итог разбора: куда именно кабинет разложил рассказ. Показываем словами,
+     потому что поля «Результат» и «Домашнее задание» лежат ниже по прокрутке —
+     без этой строки кажется, что текст просто исчез. */
+  const tellNote = el('div', {class:'meta', style:'display:none; margin-top:8px; font-size:12.5px; line-height:1.5'});
+  let toldOf = null;   /* какой текст уже разложен — чтобы не разложить дважды */
+
   const tellBox = el('div', {class:'card', style:'padding:14px; margin:4px 0'},
     bigField('Расскажите про занятие', tellIn,
-      'Разложится по полям ниже: что делали — в «Результат», что задали — в «Домашнее задание», был или не был — в отметку.'),
+      'Разложится по полям ниже: что делали — в «Результат», что задали — в «Домашнее задание», был или не был — в отметку. Сам рассказ никуда не денется: он останется здесь и сохранится вместе с карточкой.'),
     el('div', {class:'row', style:'gap:8px; margin-top:8px'},
       el('button', {type:'button', class:'btn btn-sm', onclick:() => {
+        micStop(true);
         const t = tellIn.value.trim();
         if (!t) { toast('Сначала расскажите или надиктуйте'); return; }
+        if (t === toldOf) { toast('Этот рассказ уже разложен — ниже в «Результате» и «Домашнем задании»'); flashField(resIn); return; }
         const p = parseLessonSpeech(t);
-        if (p.result.length) resIn.value = (resIn.value.trim() ? resIn.value.trim() + ' ' : '') + p.result.join('. ') + '.';
-        if (p.homework.length) hwIn.value = (hwIn.value.trim() ? hwIn.value.trim() + '; ' : '') + p.homework.join('; ');
+        const went = [];
+        if (p.result.length) {
+          resIn.value = (resIn.value.trim() ? resIn.value.trim() + ' ' : '') + p.result.join('. ') + '.';
+          went.push('в «Результат»');
+        }
+        if (p.homework.length) {
+          hwIn.value = (hwIn.value.trim() ? hwIn.value.trim() + '; ' : '') + p.homework.join('; ');
+          went.push('в «Домашнее задание»');
+        }
         if (p.mark) {
           for (const st of participants({...draft, ownerType: ownerSel.value.split(':')[0], ownerId: ownerSel.value.split(':')[1]})) {
             marks[st.id] = { s: p.mark, ch: p.mark === 'был' };
             if (p.mark === 'пропуск' && p.reason) marks[st.id].reason = p.reason;
           }
           renderAfter();
+          went.push('в отметку — ' + p.mark);
         }
         if (p.hw) {
           hwCheck.s = p.hw;
           hwCheck.note = p.hwNote || '';
           hwNoteIn.value = hwCheck.note;
           renderHw();
+          went.push('в проверку домашней работы');
         }
         restIn.value = p.rest.join('. ');
         restWrap.style.display = p.rest.length ? '' : 'none';
-        tellIn.value = '';
-        micStop(true);
-        toast('Разложил по полям — проверьте ниже');
+        toldOf = t;
+        tellNote.style.display = '';
+        tellNote.textContent = went.length
+          ? 'Разложено ' + went.join(', ') + '. Рассказ остался здесь — он тоже сохранится в карточке.'
+          : 'Кабинет не понял, куда это отнести. Текст остался на месте и сохранится вместе с карточкой — перенесите нужное руками.';
+        if (went.length) { flashField(resIn); toast('Разложил по полям — проверьте ниже'); }
+        else toast('Не понял, куда отнести — текст остался на месте');
       }}, 'Разложить по полям'),
+      el('button', {type:'button', class:'btn btn-ghost btn-sm', title:'Стереть рассказ — поля ниже останутся как есть',
+        onclick:() => {
+          if (!tellIn.value.trim()) return;
+          ask('Стереть рассказ?', 'Текст из поля «Расскажите про занятие» исчезнет. «Результат», «Домашнее задание» и отметка останутся как есть.',
+            'Стереть', () => { tellIn.value = ''; toldOf = null; tellNote.style.display = 'none'; tellIn.dispatchEvent(new Event('input', {bubbles:true})); }, true);
+        }}, 'Очистить'),
       el('span', {class:'meta', style:'font-size:12px'},
         speechOK() ? 'Или диктуйте средствами компьютера: Win+H' : 'Диктуйте средствами компьютера: Win+H, на телефоне — микрофон на клавиатуре')),
+    tellNote,
     restWrap);
 
   const body = el('div', {class:'dlg-b'},
@@ -3891,7 +3920,7 @@ function openLessonCard(L, isNew) {
 
   const draftNoteBox = el('div');
   const lessonDraft = draftAttach('lesson:' + draft.id,
-    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn]);
+    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn]);
   dlg.addEventListener('close', () => micStop(true), {once:true});
   {
     const saved = lessonDraft.read();
@@ -3929,6 +3958,9 @@ function openLessonCard(L, isNew) {
   );
 
   function submit() {
+    /* Если диктовка ещё идёт — останавливаем, чтобы последняя фраза
+       успела лечь в поле, а не потерялась вместе с закрытием окна. */
+    micStop(true);
     const clash = overlaps(dateIn.value, timeIn.value, +durSel.value, draft.id);
     if (clash) { warn.textContent = `Не сохранить: время занято (${ownerName(clash)}).`; return; }
     const [ot, oid] = ownerSel.value.split(':');
@@ -3942,6 +3974,9 @@ function openLessonCard(L, isNew) {
         .filter(([, m]) => m && m.s)
         .map(([sid, m]) => [sid, m.s === 'пропуск' ? m : {s: m.s, ch: m.ch}])),
       result: resIn.value.trim(), homework: hwIn.value.trim(),
+      /* Надиктованный рассказ хранится как есть: даже если разобрать его
+         не удалось, слова репетитора не пропадают. */
+      tell: tellIn.value.trim(),
       auto: draft.auto || false
     };
     data.hwCheck = hwCheck.s ? { s: hwCheck.s, note: hwCheck.s === 'сделана' ? '' : hwNoteIn.value.trim() } : null;
@@ -4089,6 +4124,17 @@ function micToggle(ta, btn) {
     btn.classList.add('btn-primary');
     toast('Говорите — записываю');
   } catch (e) { toast('Не удалось включить микрофон'); }
+}
+
+/* Показать репетитору поле, в которое кабинет только что положил текст:
+   подкрутить к нему экран и на секунду обвести рамкой. */
+function flashField(node) {
+  if (!node) return;
+  try { node.scrollIntoView({block: 'center', behavior: 'smooth'}); }
+  catch (e) { try { node.scrollIntoView(); } catch (e2) {} }
+  node.style.transition = 'box-shadow .25s';
+  node.style.boxShadow = '0 0 0 3px var(--ochre, #D3A868)';
+  setTimeout(() => { node.style.boxShadow = ''; }, 1800);
 }
 
 /* Подпись поля с кнопками «Голос» и «Во весь экран» */
