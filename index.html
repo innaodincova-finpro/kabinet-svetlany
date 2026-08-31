@@ -911,6 +911,77 @@ function paidOf(sid, fromISO, toISO) {
   }, 0);
 }
 const balanceOf = sid => paidOf(sid) - chargedOf(sid);
+
+/* Деньги на экране: с разделителем тысяч и без длинного хвоста после запятой */
+const num2 = v => (Math.round((Number(v) || 0) * 100) / 100).toLocaleString('ru-RU');
+const cash = v => num2(v) + ' ' + S.currency;
+
+/* Ученик, который перестал ходить, не удаляется насовсем, а убирается
+   из кабинета: в списках, ведомости и отчётах его больше нет,
+   а занятия, оплаты и история остаются на месте. */
+const liveStudents = () => S.students.filter(s => !s.archived);
+const liveGroups = () => S.groups.filter(g => !g.archived);
+
+function archivePerson(kind, id) {
+  const isG = kind === 'g';
+  const o = isG ? group(id) : student(id);
+  if (!o) return;
+  ask(isG ? 'Убрать группу из кабинета?' : 'Убрать ученика из кабинета?',
+    `«${o.name}» пропадёт из списков, ведомости и отчётов. Занятия, оплаты и вся история сохранятся — вернуть можно в любой момент через фильтр «Убранные».`,
+    'Убрать', () => { o.archived = true; ui.personId = null; save('Убран из кабинета: ' + o.name); toast('Убран из кабинета'); });
+}
+function restorePerson(kind, id) {
+  const o = kind === 'g' ? group(id) : student(id);
+  if (!o) return;
+  delete o.archived;
+  save('Возвращён в кабинет: ' + o.name);
+  toast('Вернули в кабинет');
+}
+function deletePersonForever(kind, id) {
+  const isG = kind === 'g';
+  const o = isG ? group(id) : student(id);
+  if (!o) return;
+  const mine = isG
+    ? S.lessons.filter(l => l.ownerType === 'group' && l.ownerId === id)
+    : S.lessons.filter(l => l.ownerType === 'student' && l.ownerId === id);
+  const pays = isG ? [] : S.payments.filter(p => p.studentId === id);
+  ask('Удалить насовсем?',
+    `«${o.name}» и вся связанная история исчезнут без возврата: ${mine.length} ${plural(mine.length,'занятие','занятия','занятий')}` +
+    (isG ? '' : `, ${pays.length} ${plural(pays.length,'оплата','оплаты','оплат')}`) +
+    '. Отменить это будет нечем, кроме копии кабинета. Если человек просто перестал ходить — лучше «Убрать из кабинета».',
+    'Удалить насовсем', () => {
+      if (isG) {
+        S.lessons = S.lessons.filter(l => !(l.ownerType === 'group' && l.ownerId === id));
+        S.students.forEach(s => { if (s.groupId === id) { s.groupId = null; s.type = 'индивидуально'; } });
+        S.groups = S.groups.filter(g => g.id !== id);
+        S.routes = S.routes.filter(r => !(r.ownerType === 'group' && r.ownerId === id));
+      } else {
+        S.lessons = S.lessons.filter(l => !(l.ownerType === 'student' && l.ownerId === id));
+        S.lessons.forEach(l => {
+          if (l.marks && l.marks[id]) delete l.marks[id];
+          if (l.rates && l.rates[id] != null) delete l.rates[id];
+          if (Array.isArray(l.members)) l.members = l.members.filter(x => x !== id);
+        });
+        S.payments = S.payments.filter(p => p.studentId !== id);
+        S.groups.forEach(g => g.memberIds = g.memberIds.filter(x => x !== id));
+        S.students = S.students.filter(s => s.id !== id);
+        S.routes = S.routes.filter(r => !(r.ownerType === 'student' && r.ownerId === id));
+      }
+      ui.personId = null;
+      save('Удалён насовсем: ' + o.name);
+      toast('Удалено');
+    }, true);
+}
+
+/* Пример для знакомства — из «Помощи» и со стартового экрана одинаково */
+function loadDemoAsk() {
+  const load = () => { S = demoSeed(); save('Загружен пример'); toast('Загружен пример для знакомства'); go('today'); };
+  const busy = S.students.length || S.lessons.length || S.materials.length
+    || Object.values(S.topicBank || {}).some(a => (a || []).length);
+  if (busy)
+    ask('Загрузить пример?', 'Всё, что уже есть в кабинете — ученики, занятия, оплаты, ваши темы и материалы, — будет стёрто и заменено учебными данными. Вернуть можно кнопкой «↶ Отменить» сразу после.', 'Загрузить пример', load, true);
+  else load();
+}
 const allTopics = () => Object.entries(S.topicBank).flatMap(([cls, ts]) => ts.map(t => ({...t, cls})));
 const topic = id => allTopics().find(t => t.id === id) || null;
 const routeOf = (type, id) => S.routes.find(r => r.ownerType === type && r.ownerId === id) || null;
@@ -1562,7 +1633,11 @@ function statusChip(l, sid) {
 /* Быстрая отметка прямо из списка */
 function quickMark(l, status) {
   l.marks = l.marks || {};
-  for (const st of participants(l)) l.marks[st.id] = { s: status, ch: status === 'был' };
+  for (const st of participants(l)) {
+    const old = l.marks[st.id];
+    l.marks[st.id] = { s: status, ch: status === 'был' };
+    if (status === 'пропуск' && old && old.reason) l.marks[st.id].reason = old.reason;
+  }
   l.done = true;
   freezeLesson(l);
   save('Отмечено занятие: ' + status);
@@ -1647,7 +1722,7 @@ function viewToday() {
   }
 
   const doneCnt = list.filter(isMarked).length;
-  const dueSum = S.students.reduce((sum, st) => { const b = balanceOf(st.id); return sum + (b < 0 ? -b : 0); }, 0);
+  const dueSum = liveStudents().reduce((sum, st) => { const b = balanceOf(st.id); return sum + (b < 0 ? -b : 0); }, 0);
   const weekCnt = S.lessons.filter(l => { const d = parseISO(l.date), m = mondayOf(new Date()); return d >= m && d < addDays(m,7); }).length;
 
   /* Данные живут в этом браузере. Если копию давно не сохраняли — напоминаем,
@@ -1761,7 +1836,9 @@ function viewToday() {
         el('div', {class:'list'},
           ...[
             ['Ученики и группы', 'Заведите учеников и, если есть, группы: класс, формат, длительность, ставка.', 'people'],
-            ['Методика', 'Программа 5–8 классов уже загружена: разделы, темы, цели уроков. Свои заметки добавляются к любой теме.', 'bank'],
+            ['Методика', Object.values(PROGRAMME || {}).some(v => (v || []).length)
+              ? 'Программа 5–8 классов уже загружена: разделы, темы, цели уроков. Свои заметки добавляются к любой теме.'
+              : 'Соберите свою программу: разделы, темы, цели урока и заметки — как объяснять и где ошибаются.', 'bank'],
             ['Учебные маршруты', 'Соберите каждому ученику программу из тем банка в нужном порядке.', 'routes'],
             ['Расписание', 'Задайте ученику постоянные дни — занятия расставятся на недели вперёд. Наложений не будет.', 'schedule']
           ].map(([t, d, sec], i) => el('div', {class:'route-item'},
@@ -1770,7 +1847,7 @@ function viewToday() {
             el('button', {class:'btn btn-ghost btn-sm', onclick:() => go(sec)}, 'Открыть')))),
         el('div', {class:'row'},
           el('button', {class:'btn btn-primary btn-sm', onclick:() => { go('people'); editStudent(null); }}, '+ Первый ученик'),
-          el('button', {class:'btn btn-sm', onclick:() => go('help')}, 'Загрузить пример для знакомства')),
+          el('button', {class:'btn btn-sm', onclick: loadDemoAsk}, 'Загрузить пример для знакомства')),
         el('div', {class:'meta'}, 'Пример можно загрузить и стереть в любой момент — раздел «Помощь».')));
   }
 
@@ -1792,7 +1869,7 @@ function viewPeople() {
   const filters = el('div', {class:'filters'},
     el('select', {onchange: e => set('cls', e.target.value)},
       el('option', {value:'', selected: f.cls===''}, 'Все классы'),
-      ...['4','5','6','7','8','9','10','11'].map(c => el('option', {value:c, selected:f.cls===c}, c + ' класс'))),
+      ...['1','2','3','4','5','6','7','8','9','10','11'].map(c => el('option', {value:c, selected:f.cls===c}, c + ' класс'))),
     el('select', {onchange: e => set('type', e.target.value)},
       el('option', {value:'', selected:f.type===''}, 'Инд. и группы'),
       el('option', {value:'индивидуально', selected:f.type==='индивидуально'}, 'Только индивидуально'),
@@ -1801,6 +1878,9 @@ function viewPeople() {
       el('option', {value:'', selected:f.fmt===''}, 'Онлайн и офлайн'),
       el('option', {value:'онлайн', selected:f.fmt==='онлайн'}, 'Онлайн'),
       el('option', {value:'офлайн', selected:f.fmt==='офлайн'}, 'Офлайн')),
+    el('select', {onchange: e => set('arch', e.target.value)},
+      el('option', {value:'', selected:!f.arch}, 'Кто занимается сейчас'),
+      el('option', {value:'arch', selected:f.arch==='arch'}, 'Убранные из кабинета')),
     el('span', {style:'flex:1'}),
     el('button', {class:'btn btn-sm', onclick:() => editGroup(null)}, '+ Группа'),
     el('button', {class:'btn btn-primary btn-sm', onclick:() => editStudent(null)}, '+ Ученик')
@@ -1810,7 +1890,9 @@ function viewPeople() {
   const showGroups = f.type !== 'индивидуально';
   const showSolo   = f.type !== 'группа';
 
+  const wantArch = f.arch === 'arch';
   if (showGroups) for (const g of S.groups) {
+    if (!!g.archived !== wantArch) continue;
     if (f.cls && g.cls !== f.cls) continue;
     if (f.fmt && g.format !== f.fmt) continue;
     const r = routeOf('group', g.id);
@@ -1828,6 +1910,7 @@ function viewPeople() {
     ));
   }
   if (showSolo) for (const st of S.students) {
+    if (!!st.archived !== wantArch) continue;
     if (st.type === 'группа' && f.type !== '') { if (f.type !== 'индивидуально') continue; }
     if (f.cls && st.cls !== f.cls) continue;
     if (f.fmt && st.format !== f.fmt) continue;
@@ -1959,11 +2042,16 @@ function viewPersonCard() {
 
   return el('div', {},
     head(o.name,
+      (o.archived ? 'Убран из кабинета · ' : '') +
       (isG ? 'Группа' : (o.type === 'группа' ? 'В группе' : 'Индивидуально')) + ` · проведено ${done.length}` +
-        (isG ? '' : ` · ${bal < 0 ? 'долг ' + (-bal) : bal > 0 ? 'предоплата ' + bal : 'оплата закрыта'}${bal ? ' ' + S.currency : ''}`),
+        (isG ? '' : ` · ${bal < 0 ? 'долг ' + cash(-bal) : bal > 0 ? 'предоплата ' + cash(bal) : 'оплата закрыта'}`),
       !isG ? el('button', {class:'btn btn-sm', title:'Собрать запрос для чата с ИИ',
         onclick:() => aiDialog('Что подтянуть — запрос для ИИ', () => promptWeakSpots(o))}, 'Разбор через ИИ') : null,
       el('button', {class:'btn btn-sm', onclick:() => isG ? editGroup(o.id) : editStudent(o.id)}, 'Редактировать'),
+      o.archived
+        ? el('button', {class:'btn btn-sm', onclick:() => restorePerson(kind, id)}, 'Вернуть в кабинет')
+        : el('button', {class:'btn btn-sm', onclick:() => archivePerson(kind, id)}, isG ? 'Убрать группу' : 'Убрать из кабинета'),
+      el('button', {class:'btn btn-danger btn-sm', onclick:() => deletePersonForever(kind, id)}, 'Удалить насовсем'),
       el('button', {class:'btn btn-primary btn-sm', onclick:() => newLesson(iso(new Date()), isG?'group':'student', id)}, '+ Занятие')),
     el('div', {class:'grid', style:'grid-template-columns:1fr'}, facts, standing, routeCard, hist)
   );
@@ -2229,14 +2317,22 @@ function viewRoutes() {
 
   // По умолчанию предлагаем темы класса самого ученика, а не всю методику подряд
   const classesWithTopics = Object.keys(S.topicBank).filter(c => (S.topicBank[c] || []).length).sort((a, b) => +a - +b);
+  const noTopicsAtAll = !classesWithTopics.length;
   const cls = classesWithTopics.includes(ui.routeClass) ? ui.routeClass : o.cls;
-  const clsSel = el('select', {style:'max-width:190px', onchange: e => { ui.routeClass = e.target.value; render(); }},
-    ...classesWithTopics.map(c => el('option', {value:c, selected:c === cls},
-      `${c} класс${c === o.cls ? ' · свой' : ''} · ${S.topicBank[c].length} ${plural(S.topicBank[c].length,'тема','темы','тем')}`)));
+  /* Пока методика пустая, выбирать не из чего — вместо пустого списка
+     показываем одну честную строку. */
+  const clsSel = el('select', {style:'max-width:190px', disabled: noTopicsAtAll || null,
+    onchange: e => { ui.routeClass = e.target.value; render(); }},
+    ...(noTopicsAtAll
+      ? [el('option', {value:''}, '— в методике пока нет тем —')]
+      : classesWithTopics.map(c => el('option', {value:c, selected:c === cls},
+          `${c} класс${c === o.cls ? ' · свой' : ''} · ${S.topicBank[c].length} ${plural(S.topicBank[c].length,'тема','темы','тем')}`))));
 
   const pool = (S.topicBank[cls] || []).filter(t => !r.topicIds.includes(t.id));
-  const addSel = el('select', {style:'max-width:420px'},
-    el('option', {value:''}, pool.length ? '— выбрать тему —' : '— все темы этого класса уже в маршруте —'));
+  const addSel = el('select', {style:'max-width:420px', disabled: noTopicsAtAll || null},
+    el('option', {value:''}, noTopicsAtAll
+      ? '— сначала добавьте темы в «Методике» —'
+      : pool.length ? '— выбрать тему —' : '— все темы этого класса уже в маршруте —'));
   const bySec = new Map();
   for (const t of pool) {
     const k = t.sec || 'Без раздела';
@@ -2275,7 +2371,8 @@ function viewRoutes() {
         el('div', {class:'row'},
           clsSel, addSel,
           el('button', {class:'btn btn-sm', onclick:() => {
-            if (!addSel.value) return;
+            if (noTopicsAtAll) { toast('В методике пока нет тем — добавьте их в разделе «Методика»'); go('bank'); return; }
+            if (!addSel.value) { toast('Сначала выберите тему в списке'); return; }
             if (crossClass) ask('Тема из другого класса', warnText(1), 'Добавить', doAddOne);
             else doAddOne();
           }}, 'Добавить'))),
@@ -2283,7 +2380,8 @@ function viewRoutes() {
         addWholeSection,
         el('button', {class:'btn btn-sm', onclick:() => {
           const k = addWholeSection.value;
-          if (!k) return;
+          if (noTopicsAtAll) { toast('В методике пока нет тем — добавьте их в разделе «Методика»'); go('bank'); return; }
+          if (!k) { toast('Сначала выберите раздел в списке'); return; }
           if (crossClass) ask('Раздел из другого класса', warnText(bySec.get(k).length), 'Добавить раздел', () => doAddSection(k));
           else doAddSection(k);
         }}, 'Добавить раздел'),
@@ -2438,6 +2536,15 @@ function viewMethod() {
 }
 
 function loadProgrammeDialog() {
+  /* В шаблоне заготовки программы нет — восстанавливать нечего,
+     и делать вид, что что-то загрузилось, нельзя. */
+  const hasSource = Object.values(PROGRAMME || {}).some(v => (v || []).length);
+  if (!hasSource) {
+    ask('Заготовки программы нет',
+      'В этом кабинете нет встроенного тематического планирования — темы вы добавляете сами в разделе «Методика», по одной или списком через «Импорт тем текстом». Восстанавливать нечего.',
+      'Понятно', () => {});
+    return;
+  }
   const filled = Object.keys(PROGRAMME).filter(c => (S.topicBank[c] || []).length);
   const run = () => {
     Object.keys(PROGRAMME).forEach(c => { S.topicBank[c] = programmeTopics(c); });
@@ -2647,32 +2754,40 @@ function editMaterial(id) {
 
 /* ═══════════ 7. ПОСЕЩЕНИЯ И ОПЛАТА ═══════════ */
 function balanceChip(bal) {
-  if (bal < 0) return el('span', {class:'chip chip-warn', html:'долг ' + (-bal) + ' ' + esc(S.currency)});
-  if (bal > 0) return el('span', {class:'chip chip-ok', html:'предоплата ' + bal + ' ' + esc(S.currency)});
+  if (bal < 0) return el('span', {class:'chip chip-warn', text:'долг ' + num2(-bal) + ' ' + S.currency});
+  if (bal > 0) return el('span', {class:'chip chip-ok', text:'предоплата ' + num2(bal) + ' ' + S.currency});
   return el('span', {class:'chip chip-mute', text:'закрыто'});
 }
 
 function addPayment(sid, preset) {
   const st = student(sid);
   if (!st) return;
-  const amountIn = el('input', {type:'number', value: preset ?? '', min:0, placeholder:'сумма'});
+  const amountIn = el('input', {type:'number', value: preset ?? '', placeholder:'сумма'});
   const dateIn = el('input', {type:'date', value: iso(new Date())});
   const noteIn = el('input', {type:'text', placeholder:'например, за сентябрь'});
+  /* Минус нужен, чтобы исправить ошибку или вернуть деньги. Просто так
+     отрицательная сумма проходить не должна — это чаще опечатка. */
+  const backIn = el('input', {type:'checkbox', style:'width:auto'});
   const bal = balanceOf(sid);
   openForm(`Оплата · ${st.name}`, [
     el('div', {class:'meta'},
-      bal < 0 ? `Сейчас долг ${-bal} ${S.currency}.` : bal > 0 ? `Сейчас предоплата ${bal} ${S.currency}.` : 'Сейчас всё закрыто.'),
+      bal < 0 ? `Сейчас долг ${cash(-bal)}.` : bal > 0 ? `Сейчас предоплата ${cash(bal)}.` : 'Сейчас всё закрыто.'),
     el('div', {class:'two'},
       el('label', {class:'field'}, el('span',{},'Сумма'), amountIn),
       el('label', {class:'field'}, el('span',{},'Дата'), dateIn)),
-    el('label', {class:'field'}, el('span',{},'Заметка'), noteIn)
+    el('label', {class:'field'}, el('span',{},'Заметка'), noteIn),
+    el('label', {class:'row', style:'gap:8px'}, backIn,
+      el('span', {class:'meta', text:'Это возврат или исправление — сумма со знаком минус'}))
   ], () => {
     const amt = Number(amountIn.value);
     if (!amt) return 'Введите сумму.';
+    if (amt < 0 && !backIn.checked) return 'Сумма меньше нуля. Если это возврат или исправление ошибки — поставьте галочку ниже.';
+    if (amt > 0 && backIn.checked) return 'Для возврата впишите сумму со знаком минус, например −500.';
     if (!dateIn.value) return 'Укажите дату.';
-    S.payments.push({id: uid(), studentId: sid, date: dateIn.value, amount: amt, lessonId: null, note: noteIn.value.trim()});
-    save('Внесена оплата: ' + amt);
-    toast('Оплата записана');
+    const note = noteIn.value.trim() || (amt < 0 ? 'возврат или исправление' : '');
+    S.payments.push({id: uid(), studentId: sid, date: dateIn.value, amount: amt, lessonId: null, note});
+    save((amt < 0 ? 'Возврат: ' : 'Внесена оплата: ') + num2(amt));
+    toast(amt < 0 ? 'Возврат записан' : 'Оплата записана');
   }, 'payment:' + sid);
 }
 
@@ -2686,7 +2801,7 @@ function viewMoney() {
   const from = `${yy}-${pad2(mm)}-01`;
   const to = `${yy}-${pad2(mm)}-${pad2(new Date(yy, mm, 0).getDate())}`;
 
-  const rows = S.students.map(st => {
+  const rows = liveStudents().map(st => {
     const inMonth = lessonsOfStudent(st.id).filter(l => l.date >= from && l.date <= to);
     const marked = inMonth.filter(l => markOf(l, st.id));
     const was = marked.filter(l => markOf(l, st.id).s === 'был').length;
@@ -2828,8 +2943,14 @@ function viewMoney() {
 
   return el('div', {},
     head('Посещения и оплата', 'Начисления берутся из отметок посещения, оплаты вносятся отдельно',
-      el('button', {class:'btn btn-ghost btn-sm', onclick:() => saveCsv(`Занятия — ${monthName}`, lessonRows())}, 'CSV: занятия'),
-      el('button', {class:'btn btn-sm', onclick: saveExcel}, 'Отчёт в Excel'),
+      el('button', {class:'btn btn-ghost btn-sm', onclick:() => {
+        if (!rows.length) return toast('Выгружать пока нечего — сначала заведите учеников');
+        saveCsv(`Занятия — ${monthName}`, lessonRows());
+      }}, 'CSV: занятия'),
+      el('button', {class:'btn btn-sm', onclick:() => {
+        if (!rows.length) return toast('Выгружать пока нечего — сначала заведите учеников');
+        saveExcel();
+      }}, 'Отчёт в Excel'),
       el('button', {class:'btn btn-primary btn-sm', onclick:() => saveGenerated(
         `Посещения и оплата — ${monthName}`, 'docx', reportDoc(),
         {ext:'txt', data: toCsv(summaryRows()), note:'Word здесь запрещён — сохранила данные текстом'})}, 'Отчёт в Word')),
@@ -2857,7 +2978,7 @@ function viewMoney() {
 
 /* ═══════════ 8. ОТЧЁТЫ РОДИТЕЛЯМ ═══════════ */
 function viewReports() {
-  const opts = S.students;
+  const opts = liveStudents();
   if (!ui.reportId || !opts.some(s => s.id === ui.reportId)) ui.reportId = opts[0]?.id || null;
   if (!ui.reportId) return el('div', {}, head('Отчёты родителям',''), el('div',{class:'empty',text:'Сначала добавьте учеников.'}));
   const st = student(ui.reportId);
@@ -2959,8 +3080,8 @@ function reportBlocks(st, month) {
   const charged = mine.reduce((s, l) => { const m = markOf(l, st.id); return s + (m && m.ch ? rateFor(l, st.id) : 0); }, 0);
   const paid = paidOf(st.id, from, to);
   const bal = balanceOf(st.id);
-  const money = bal < 0 ? `к оплате ${-bal} ${S.currency}`
-    : bal > 0 ? `оплачено вперёд ${bal} ${S.currency}` : 'оплата закрыта';
+  const money = bal < 0 ? `к оплате ${num2(-bal)} ${S.currency}`
+    : bal > 0 ? `оплачено вперёд ${num2(bal)} ${S.currency}` : 'оплата закрыта';
 
   const B = [];
   B.push({k:'h', t:`Отчёт для родителей — ${st.name}, ${st.cls} класс`});
@@ -2976,8 +3097,8 @@ function reportBlocks(st, month) {
   if (moved) short.push(['Перенесено', moved]);
   short.push(['Учебных часов', hours]);
   if (r && r.topicIds.length) short.push(['Пройдено тем программы', `${passed} из ${r.topicIds.length}`]);
-  short.push(['Занятия за месяц', `${charged} ${S.currency}`]);
-  short.push(['Оплачено за месяц', `${paid} ${S.currency}`]);
+  short.push(['Занятия за месяц', `${num2(charged)} ${S.currency}`]);
+  short.push(['Оплачено за месяц', `${num2(paid)} ${S.currency}`]);
   short.push(['Состояние оплаты', money]);
   B.push({k:'table', widths:[3400, 5200], rows: short});
 
@@ -3045,27 +3166,39 @@ function viewHelp() {
   const unmarked = unmarkedLessons().length;
   const noResult = S.lessons.filter(l => isMarked(l) && !l.result).length;
 
+  /* true — в порядке, false — надо поправить, null — проверять пока нечего.
+     Раньше пустой кабинет получал галочки там, где просто ничего не было. */
+  const nStud = liveStudents().length, nGroup = liveGroups().length;
   const C = [
-    [S.students.length > 0, 'Ученики заведены', `${S.students.length} человек`],
-    [S.groups.length > 0, 'Группы созданы', `${S.groups.length} ` + plural(S.groups.length, 'группа', 'группы', 'групп')],
-    [emptyGroups === 0, 'В каждой группе есть состав', emptyGroups ? `${emptyGroups} группа без участников` : 'все группы наполнены'],
+    [nStud > 0, 'Ученики заведены', `${nStud} ${plural(nStud, 'человек', 'человека', 'человек')}`],
+    [nGroup > 0, 'Группы созданы', `${nGroup} ` + plural(nGroup, 'группа', 'группы', 'групп')],
+    [nGroup === 0 ? null : emptyGroups === 0, 'В каждой группе есть состав',
+      nGroup === 0 ? 'групп пока нет' : emptyGroups ? `${emptyGroups} ${plural(emptyGroups,'группа','группы','групп')} без участников` : 'все группы наполнены'],
     [allTopics().length > 0, 'Методика наполнена', allTopics().length
       ? `${allTopics().length} ${plural(allTopics().length, 'тема', 'темы', 'тем')} по ${Object.keys(S.topicBank).filter(c => S.topicBank[c].length).length} классам`
       : 'тем пока нет — раздел «Методика»'],
-    [noMethod === 0, 'У каждой темы есть цели урока', noMethod
-      ? `${noMethod} ${plural(noMethod,'тема','темы','тем')} без целей`
-      : `цели заполнены везде${ownNotes ? `; своих заметок: ${ownNotes}` : '; своих заметок пока нет'}`],
-    [emptyRoutes === 0, 'У всех есть учебный маршрут', emptyRoutes ? `${emptyRoutes} без программы` : 'программы назначены всем'],
-    [S.lessons.length > 0, 'Расписание заполнено', `${S.lessons.length} занятий`],
-    [noTopic === 0, 'У всех занятий назначена тема', noTopic ? `${noTopic} занятий без темы` : 'тема есть везде'],
+    [allTopics().length === 0 ? null : noMethod === 0, 'У каждой темы есть цели урока', allTopics().length === 0
+      ? 'тем пока нет'
+      : noMethod
+        ? `${noMethod} ${plural(noMethod,'тема','темы','тем')} без целей`
+        : `цели заполнены везде${ownNotes ? `; своих заметок: ${ownNotes}` : '; своих заметок пока нет'}`],
+    [nStud + nGroup === 0 ? null : emptyRoutes === 0, 'У всех есть учебный маршрут',
+      nStud + nGroup === 0 ? 'учеников пока нет' : emptyRoutes ? `${emptyRoutes} без программы` : 'программы назначены всем'],
+    [S.lessons.length > 0, 'Расписание заполнено', `${S.lessons.length} ${plural(S.lessons.length,'занятие','занятия','занятий')}`],
+    [S.lessons.length === 0 ? null : noTopic === 0, 'У всех занятий назначена тема',
+      S.lessons.length === 0 ? 'занятий пока нет' : noTopic ? `${noTopic} ${plural(noTopic,'занятие','занятия','занятий')} без темы` : 'тема есть везде'],
     [true, 'Пересечения по времени исключены', 'проверка при каждом сохранении занятия'],
-    [noResult === 0, 'У проведённых занятий записан результат', noResult ? `${noResult} без результата` : 'результаты записаны'],
-    [unmarked === 0, 'Прошедшие занятия отмечены', unmarked ? `${unmarked} ${plural(unmarked,'занятие','занятия','занятий')} ждут отметки` : 'всё отмечено'],
-    [debtors === 0, 'Оплаты закрыты', debtors ? `${debtors} ${plural(debtors,'ученик','ученика','учеников')} с долгом` : 'долгов нет'],
-    [S.materials.length > 0, 'Материалы загружены', `${S.materials.length} файлов и ссылок`],
+    [S.lessons.filter(isMarked).length === 0 ? null : noResult === 0, 'У проведённых занятий записан результат',
+      S.lessons.filter(isMarked).length === 0 ? 'проведённых занятий пока нет' : noResult ? `${noResult} без результата` : 'результаты записаны'],
+    [S.lessons.length === 0 ? null : unmarked === 0, 'Прошедшие занятия отмечены',
+      S.lessons.length === 0 ? 'занятий пока нет' : unmarked ? `${unmarked} ${plural(unmarked,'занятие','занятия','занятий')} ждут отметки` : 'всё отмечено'],
+    [nStud === 0 ? null : debtors === 0, 'Оплаты закрыты',
+      nStud === 0 ? 'учеников пока нет' : debtors ? `${debtors} ${plural(debtors,'ученик','ученика','учеников')} с долгом` : 'долгов нет'],
+    [S.materials.length > 0, 'Материалы загружены', `${S.materials.length} ${plural(S.materials.length,'файл или ссылка','файла и ссылки','файлов и ссылок')}`],
     [!!localStorage.getItem(KEY), 'Данные сохраняются и переживают перезагрузку', 'проверьте: обновите страницу — всё на месте']
   ];
-  const ok = C.filter(c => c[0]).length;
+  const ok = C.filter(c => c[0] === true).length;
+  const checkable = C.filter(c => c[0] !== null).length;
 
   const fileIn = el('input', {type:'file', accept:'.json', style:'display:none', onchange: e => {
     const f = e.target.files[0]; if (!f) return;
@@ -3111,11 +3244,13 @@ function viewHelp() {
   }}, ...hourOpts(S.dayEnd));
 
   return el('div', {},
-    head('Помощь', `Самопроверка кабинета: ${ok} из ${C.length} пунктов в порядке`),
+    head('Помощь', `Самопроверка кабинета: ${ok} из ${checkable} пунктов в порядке`),
     el('div', {class:'grid', style:'grid-template-columns:1fr'},
       el('div', {class:'card'},
         ...C.map(([good, title, note]) => el('div', {class:'crit'},
-          el('div', {class:'mk ' + (good ? 'y' : 'n'), text: good ? '✓' : '!'}),
+          el('div', {class:'mk ' + (good === true ? 'y' : good === null ? '' : 'n'),
+            style: good === null ? 'color:var(--muted); border-color:var(--line)' : '',
+            text: good === true ? '✓' : good === null ? '—' : '!'}),
           el('div', {}, el('div', {text:title}), el('p', {text:note}))))),
       el('div', {class:'card'},
         el('div', {class:'row', style:'justify-content:space-between; margin-bottom:12px'},
@@ -3143,14 +3278,7 @@ function viewHelp() {
           el('button', {class:'btn btn-sm', onclick:() => fileIn.click()}, 'Загрузить из файла'),
           fileIn,
           el('button', {class:'btn btn-sm', onclick: loadProgrammeDialog}, 'Восстановить программу 5–8'),
-          el('button', {class:'btn btn-sm', onclick:() => {
-            const load = () => { S = demoSeed(); save('Загружен пример'); toast('Загружен пример для знакомства'); };
-            const busy = S.students.length || S.lessons.length || S.materials.length
-              || Object.values(S.topicBank || {}).some(a => (a || []).length);
-            if (busy)
-              ask('Загрузить пример?', 'Всё, что уже есть в кабинете — ученики, занятия, оплаты, ваши темы и материалы, — будет стёрто и заменено учебными данными. Вернуть можно кнопкой «↶ Отменить» сразу после.', 'Загрузить пример', load, true);
-            else load();
-          }}, 'Загрузить пример'),
+          el('button', {class:'btn btn-sm', onclick: loadDemoAsk}, 'Загрузить пример'),
           el('button', {
             class:'btn btn-sm', style:'color:var(--stop); border-color:var(--stop)',
             onclick:() => ask('Очистить кабинет?',
@@ -3224,10 +3352,16 @@ function openLessonCard(L, isNew) {
   /* В списке и группы, и отдельные ученики, и участники групп — последним
      иногда ставят разовое занятие сверх группового. */
   const ownerOpts = [
-    ...S.groups.map(g => ({v:'group:'+g.id, t:g.name + ' (группа)'})),
-    ...S.students.filter(s => s.type !== 'группа').map(s => ({v:'student:'+s.id, t:s.name + ' · ' + s.cls + ' класс'})),
-    ...S.students.filter(s => s.type === 'группа').map(s => ({v:'student:'+s.id, t:s.name + ' · отдельное занятие'}))
+    ...liveGroups().map(g => ({v:'group:'+g.id, t:g.name + ' (группа)'})),
+    ...liveStudents().filter(s => s.type !== 'группа').map(s => ({v:'student:'+s.id, t:s.name + ' · ' + s.cls + ' класс'})),
+    ...liveStudents().filter(s => s.type === 'группа').map(s => ({v:'student:'+s.id, t:s.name + ' · отдельное занятие'}))
   ];
+  /* Занятие убранного ученика открывается как было — не теряем его из карточки */
+  const curVal = draft.ownerType + ':' + draft.ownerId;
+  if (!ownerOpts.some(x => x.v === curVal)) {
+    const own = draft.ownerType === 'group' ? group(draft.ownerId) : student(draft.ownerId);
+    if (own) ownerOpts.unshift({v: curVal, t: own.name + ' · убран из кабинета'});
+  }
   const ownerSel = el('select', {}, ...ownerOpts.map(o => el('option', {value:o.v, selected:o.v === draft.ownerType+':'+draft.ownerId}, o.t)));
   const dateIn = el('input', {type:'date', value:draft.date});
   const timeIn = el('input', {type:'time', value:draft.time, step:300});
@@ -3497,7 +3631,11 @@ function openLessonCard(L, isNew) {
       id: draft.id, date: dateIn.value, time: timeIn.value, duration: +durSel.value,
       ownerType: ot, ownerId: oid, topicId: topicSel.value || null,
       plan: planIn.value.trim(), note: noteIn.value.trim(), materialIds: draft.materialIds || [],
-      marks: Object.fromEntries(Object.entries(marks).filter(([, m]) => m && m.s)),
+      /* Причина живёт только у пропуска: сменили отметку — причина уходит,
+         иначе она молча вернётся в отчёт при следующем пропуске. */
+      marks: Object.fromEntries(Object.entries(marks)
+        .filter(([, m]) => m && m.s)
+        .map(([sid, m]) => [sid, m.s === 'пропуск' ? m : {s: m.s, ch: m.ch}])),
       result: resIn.value.trim(), homework: hwIn.value.trim(),
       auto: draft.auto || false
     };
@@ -3646,7 +3784,17 @@ function openForm(title, fields, onSubmit, draftKey) {
       draft = draftAttach(draftKey, nodes);
       const saved = draft.read();
       if (saved && draftRestore(saved, nodes)) {
-        note.append(draftNote(() => { draft.clear(); dlg.close(); toast('Черновик убран'); }));
+        note.append(draftNote(() => {
+          draft.clear();
+          /* Очищаем поля на месте: окно закрывать и открывать заново не нужно */
+          nodes.forEach(n => {
+            if (n.type === 'checkbox' || n.type === 'radio') n.checked = false;
+            else if (n.tagName === 'SELECT') n.selectedIndex = 0;
+            else n.value = '';
+          });
+          note.textContent = '';
+          toast('Начали заново');
+        }));
       }
     } catch (e) { draft = null; }
   }
