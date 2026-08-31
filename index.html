@@ -1279,6 +1279,47 @@ async function openMaterialFile(m, startPage) {
     navBtn.textContent = wrap.classList.contains('no-nav') ? 'Оглавление' : 'Скрыть оглавление';
     setTimeout(draw, 60);
   }}, 'Скрыть оглавление');
+  /* Страницу учебника часто нужно положить на доску и писать поверх. Доски
+     принимают картинку, а не PDF, поэтому кабинет отдаёт готовую картинку
+     страницы: в буфер обмена (вставляется в доску Ctrl+V) или файлом. */
+  async function pageToPng() {
+    const pg = await doc.getPage(Math.min(Math.max(1, page), doc.numPages));
+    const base = pg.getViewport({scale: 1});
+    /* Фиксированная крупная ширина: на доске страница должна остаться читаемой */
+    const scale = Math.min(3, Math.max(1, 1600 / base.width));
+    const vp = pg.getViewport({scale});
+    const c = document.createElement('canvas');
+    c.width = vp.width; c.height = vp.height;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await pg.render({canvasContext: ctx, viewport: vp}).promise;
+    return new Promise(res => c.toBlob(res, 'image/png'));
+  }
+
+  const boardBtn = el('button', {class:'btn btn-sm', title:'Скопировать страницу картинкой, чтобы вставить на доску',
+    onclick: async () => {
+      if (!doc) return;
+      boardBtn.disabled = true;
+      try {
+        const blob = await pageToPng();
+        if (!blob) throw new Error('пусто');
+        if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+          await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+          toast('Страница скопирована — на доске нажмите Ctrl+V');
+        } else {
+          await downloadFile(`Страница ${page} — ${m.title || 'учебник'}.png`, blob);
+          toast('Страница сохранена картинкой — перетащите её на доску');
+        }
+      } catch (e) {
+        try {
+          const blob = await pageToPng();
+          await downloadFile(`Страница ${page} — ${m.title || 'учебник'}.png`, blob);
+          toast('Скопировать не дал браузер — страница сохранена картинкой');
+        } catch (e2) { toast('Не удалось подготовить страницу'); }
+      }
+      boardBtn.disabled = false;
+    }}, '⧉ На доску');
+
   toolbar.append(fullBtn, navBtn,
     el('button', {class:'btn btn-sm', onclick:() => go(-1)}, '←'),
     pageIn, pageLbl,
@@ -1286,7 +1327,7 @@ async function openMaterialFile(m, startPage) {
     el('button', {class:'btn btn-sm', title:'Мельче', onclick:() => setZoom(zoom - 0.25)}, '−'),
     zoomLbl,
     el('button', {class:'btn btn-sm', title:'Крупнее', onclick:() => setZoom(zoom + 0.25)}, '+'),
-    fitBtn);
+    fitBtn, boardBtn);
   toolbar.style.display = 'none';
 
   /* Стрелки листают, +/− меняют масштаб — во время урока так быстрее. */
@@ -1844,7 +1885,13 @@ function viewToday() {
             el('div', {class:'row'},
               el('button', {class:'btn btn-primary btn-sm', onclick:() => openLesson(nowL.id)}, 'Открыть карточку'),
               (owner(nowL)||{}).format === 'онлайн'
-                ? el('button', {class:'btn btn-sm', onclick:() => openMeet(nowL.ownerType, nowL.ownerId)}, 'Войти на доску')
+                ? el('button', {class:'btn btn-sm', onclick:() => openMeet(nowL.ownerType, nowL.ownerId)}, 'Войти на видео')
+                : null,
+              (owner(nowL)||{}).format === 'онлайн'
+                ? el('button', {class:'btn btn-sm', onclick:() => openMeetSmall(nowL.ownerType, nowL.ownerId)}, 'Видео в уголке')
+                : null,
+              ((owner(nowL)||{}).format === 'онлайн' && hasBoard(nowL.ownerType, nowL.ownerId))
+                ? el('button', {class:'btn btn-sm', onclick:() => openBoard(nowL.ownerType, nowL.ownerId)}, 'Открыть доску')
                 : null,
               (owner(nowL)||{}).format === 'онлайн'
                 ? el('button', {class:'btn btn-ghost btn-sm', onclick:() => copyMeet(nowL.ownerType, nowL.ownerId)}, 'Скопировать ссылку')
@@ -1859,7 +1906,10 @@ function viewToday() {
               el('div', {class:'row'},
                 el('button', {class:'btn btn-primary btn-sm', onclick:() => openLesson(nextL.id)}, 'Открыть карточку'),
                 (owner(nextL)||{}).format === 'онлайн'
-                  ? el('button', {class:'btn btn-sm', onclick:() => openMeet(nextL.ownerType, nextL.ownerId)}, 'Войти на доску')
+                  ? el('button', {class:'btn btn-sm', onclick:() => openMeet(nextL.ownerType, nextL.ownerId)}, 'Войти на видео')
+                  : null,
+                ((owner(nextL)||{}).format === 'онлайн' && hasBoard(nextL.ownerType, nextL.ownerId))
+                  ? el('button', {class:'btn btn-sm', onclick:() => openBoard(nextL.ownerType, nextL.ownerId)}, 'Открыть доску')
                   : null,
                 (owner(nextL)||{}).format === 'онлайн'
                   ? el('button', {class:'btn btn-ghost btn-sm', onclick:() => copyMeet(nextL.ownerType, nextL.ownerId)}, 'Скопировать ссылку')
@@ -2114,7 +2164,11 @@ function viewPersonCard() {
       !isG ? el('button', {class:'btn btn-sm', title:'Собрать запрос для чата с ИИ',
         onclick:() => aiDialog('Что подтянуть — запрос для ИИ', () => promptWeakSpots(o))}, 'Разбор через ИИ') : null,
       o.format === 'онлайн' ? el('button', {class:'btn btn-sm',
-        onclick:() => openMeet(isG ? 'group' : 'student', id)}, 'Войти на доску') : null,
+        onclick:() => openMeet(isG ? 'group' : 'student', id)}, 'Войти на видео') : null,
+      o.format === 'онлайн' ? el('button', {class:'btn btn-sm', title:'Видео маленьким окном поверх доски',
+        onclick:() => openMeetSmall(isG ? 'group' : 'student', id)}, 'Видео в уголке') : null,
+      (o.format === 'онлайн' && hasBoard(isG ? 'group' : 'student', id)) ? el('button', {class:'btn btn-sm',
+        onclick:() => openBoard(isG ? 'group' : 'student', id)}, 'Открыть доску') : null,
       o.format === 'онлайн' ? el('button', {class:'btn btn-sm',
         onclick:() => sendMeetDialog(isG ? 'group' : 'student', id)}, 'Отправить ссылку') : null,
       el('button', {class:'btn btn-sm', onclick:() => isG ? editGroup(o.id) : editStudent(o.id)}, 'Редактировать'),
@@ -3371,6 +3425,12 @@ function viewHelp() {
 
   const curSel = el('select', {style:'max-width:140px', onchange: e => { S.currency = e.target.value; save('Изменена валюта'); }},
     ...['₼','₽','€','$','₸'].map(c => el('option', {value:c, selected:S.currency===c}, c)));
+  const boardBaseIn = el('input', {type:'text', value: S.boardBase || '',
+    placeholder:'например, whiteboard.fi/ваша-комната', onchange: e => {
+      const v = normalizeMeet(e.target.value);
+      if (e.target.value.trim() && !v) { toast('Это не похоже на адрес — скопируйте ссылку из адресной строки'); return; }
+      S.boardBase = v; save('Изменена общая доска');
+    }});
   const tutorIn = el('input', {type:'text', value:S.tutor, onchange: e => { S.tutor = e.target.value.trim() || 'Светлана'; save('Изменено имя репетитора'); }});
   const hourOpts = (sel) => Array.from({length: 25}, (_, h) => el('option', {value:h, selected: sel === h}, pad2(h) + ':00'));
   const startSel = el('select', {onchange: e => {
@@ -3456,7 +3516,16 @@ function viewHelp() {
         el('div', {style:'margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Видео и доска'}),
           el('div', {class:'meta', style:'font-size:13px'},
-            'У каждого ученика и группы своя постоянная комната: ссылку отправляют один раз, она работает весь год. Обратная сторона — тот, кому ссылка попала, сможет зайти в неё когда угодно. Если это важно, впишите в карточку ученика свою ссылку на сервис с паролем — кабинет будет пользоваться ею.'),
+            'У каждого ученика и группы своя постоянная комната для видео: ссылку отправляют один раз, она работает весь год. Обратная сторона — тот, кому ссылка попала, сможет зайти в неё когда угодно. Если это важно, впишите в карточку ученика свою ссылку на сервис с паролем.'),
+          el('div', {class:'meta', style:'font-size:13px'},
+            'Доска внутри видео — простая: курсор-крестик вместо пера, прыгает толщина линии, нельзя подложить страницу учебника. Поэтому доску можно вести отдельно: впишите сюда адрес своей доски, и рядом с «Войти на видео» появится кнопка «Открыть доску», а ученику уйдут сразу две ссылки.'),
+          el('label', {class:'field', style:'margin-top:10px'}, el('span',{},'Общая доска для всех занятий'), boardBaseIn),
+          el('div', {class:'meta', style:'font-size:13px'},
+            'Чтобы доска занимала весь экран, а ученик был виден в уголке, нажмите «Видео в уголке»: откроется маленькое окно с видео, которое держится поверх остальных окон — как кружок в мессенджере. Доску после этого можно раскрыть на весь экран. Окно перетаскивается мышью и закрывается кнопкой «Завершить». Если браузер такое окно держать поверх не умеет, видео откроется обычным маленьким окном — поставьте его в угол экрана.'),
+          el('div', {class:'meta', style:'font-size:13px'},
+            'Страницу учебника можно положить на доску: откройте учебник в «Материалах», найдите нужную страницу и нажмите «⧉ На доску» — страница ляжет в буфер обмена картинкой, а на доске останется нажать Ctrl+V и писать поверх. Если браузер копировать не даст, кабинет сохранит страницу картинкой на компьютер.'),
+          el('div', {class:'meta', style:'font-size:12.5px'},
+            'Что вписать: адрес своей комнаты на whiteboard.fi (сделан для учителей: у каждого ученика своя доска, вход по коду без регистрации, можно подложить картинку или PDF и писать поверх) либо ссылку общей комнаты excalidraw.com (одна доска на двоих, нормальное перо, картинки перетаскиванием). Годится любой другой сервис — кабинет просто открывает адрес.'),
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:14px 0 8px', text:'Как диктовать голосом'}),
           el('div', {class:'meta', style:'font-size:13px'},
             'Способ, который работает всегда: поставьте курсор в поле и включите диктовку самого устройства. На Windows — Win+H, на телефоне — значок микрофона на клавиатуре.'),
@@ -3626,7 +3695,11 @@ function openLessonCard(L, isNew) {
   /* Кнопки доски показываются только для онлайн-занятий и пересчитываются
      сразу, как только в списке выбрали другого ученика или группу. */
   const meetBtn = el('button', {class:'btn btn-sm', type:'button',
-    onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openMeet(ot, oid); }}, 'Войти на доску');
+    onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openMeet(ot, oid); }}, 'Войти на видео');
+  const boardBtn = el('button', {class:'btn btn-sm', type:'button',
+    onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openBoard(ot, oid); }}, 'Открыть доску');
+  const smallBtn = el('button', {class:'btn btn-sm', type:'button', title:'Видео маленьким окном поверх доски',
+    onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openMeetSmall(ot, oid); }}, 'Видео в уголке');
   const copyBtn = el('button', {class:'btn btn-ghost btn-sm', type:'button',
     onclick:() => { const [ot, oid] = ownerSel.value.split(':'); sendMeetDialog(ot, oid); }}, 'Отправить ссылку');
   function syncMeetBtns() {
@@ -3635,6 +3708,8 @@ function openLessonCard(L, isNew) {
     const online = (own || {}).format === 'онлайн';
     meetBtn.style.display = online ? '' : 'none';
     copyBtn.style.display = online ? '' : 'none';
+    boardBtn.style.display = (online && hasBoard(ot, oid)) ? '' : 'none';
+    smallBtn.style.display = online ? '' : 'none';
   }
   ownerSel.addEventListener('change', syncMeetBtns);
   syncMeetBtns();
@@ -3794,7 +3869,7 @@ function openLessonCard(L, isNew) {
       el('label', {class:'field'}, el('span',{},'Длительность'), durSel)),
     el('div', {class:'row'},
       el('button', {class:'btn btn-sm', type:'button', onclick:() => openPicker(draft.id, (d, t) => { dateIn.value = d; timeIn.value = t; checkClash(); })}, 'Выбрать время в расписании'),
-      meetBtn, copyBtn,
+      meetBtn, smallBtn, boardBtn, copyBtn,
       warn),
     methodBox,
     matBox,
@@ -4152,6 +4227,7 @@ function editStudent(id) {
   const parent = el('input', {type:'text', value:st?.parent || ''});
   const phone = el('input', {type:'text', value:st?.phone || ''});
   const meetUrlIn = el('input', {type:'text', value:st?.meetUrl || '', placeholder:'необязательно — по умолчанию кабинет сам создаёт ссылку на Jitsi'});
+  const boardUrlIn = el('input', {type:'text', value:st?.boardUrl || '', placeholder:'необязательно — своя доска для этого ученика'});
   const note = el('textarea', {}); note.value = st?.note || '';
 
   openForm(id ? 'Ученик' : 'Новый ученик', [
@@ -4171,19 +4247,25 @@ function editStudent(id) {
     el('label', {class:'field'}, el('span',{},'Как платят'), payMode,
       el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
         'За занятие — платят каждый раз. Помесячно после — счёт в конце месяца за проведённые. Предоплата — вносят вперёд, занятия списывают баланс.')),
-    el('label', {class:'field'}, el('span',{},'Своя ссылка на видео и доску'), meetUrlIn,
+    el('label', {class:'field'}, el('span',{},'Ссылка на видео'), meetUrlIn,
       el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
-        'Только для онлайн-занятий. Если пусто — «Войти на доску» откроет автоматическую ссылку на Jitsi. Впишите сюда постоянную ссылку своей комнаты в другом сервисе (например, Bitpaper) — кнопки в карточке занятия начнут использовать её.')),
+        'Только для онлайн-занятий. Пусто — кабинет создаёт ссылку сам. Впишите свою постоянную ссылку, если ведёте занятия в другом сервисе.')),
+    el('label', {class:'field'}, el('span',{},'Ссылка на доску'), boardUrlIn,
+      el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
+        'Отдельная доска для письма — если та, что внутри видео, не устраивает. Пусто — берётся общая доска из «Помощи», а если и её нет, пишут в видео.')),
     el('label', {class:'field'}, el('span',{},'Заметка'), note)
   ], () => {
     if (!name.value.trim()) return 'Введите имя.';
     if (meetUrlIn.value.trim() && !normalizeMeet(meetUrlIn.value))
       return 'Ссылка на видео и доску не похожа на адрес. Скопируйте её из адресной строки браузера — или очистите поле, тогда кабинет создаст ссылку сам.';
+    if (boardUrlIn.value.trim() && !normalizeMeet(boardUrlIn.value))
+      return 'Ссылка на доску не похожа на адрес. Скопируйте её из адресной строки браузера.';
     const d = {
       name:name.value.trim(), cls:cls.value.trim() || '6', type:type.value,
       groupId: type.value === 'группа' ? (grp.value || null) : null,
       format:fmt.value, duration:+dur.value, rate:+rate.value || 0, payMode: payMode.value,
-      parent:parent.value.trim(), phone:phone.value.trim(), meetUrl: normalizeMeet(meetUrlIn.value), note:note.value.trim()
+      parent:parent.value.trim(), phone:phone.value.trim(), meetUrl: normalizeMeet(meetUrlIn.value),
+      boardUrl: normalizeMeet(boardUrlIn.value), note:note.value.trim()
     };
     if (st) {
       S.groups.forEach(g => g.memberIds = g.memberIds.filter(m => m !== st.id));
@@ -4207,6 +4289,7 @@ function editGroup(id) {
   const dur = el('select', {}, ...[60,90,120].map(d => el('option',{value:d, selected:+(g?.duration||90)===d}, d + ' мин')));
   const rate = el('input', {type:'number', value:g?.rate ?? 40, min:0});
   const meetUrlIn = el('input', {type:'text', value:g?.meetUrl || '', placeholder:'необязательно — по умолчанию кабинет сам создаёт ссылку на Jitsi'});
+  const boardUrlIn = el('input', {type:'text', value:g?.boardUrl || '', placeholder:'необязательно — своя доска для этой группы'});
   const boxes = S.students.map(s => {
     const cb = el('input', {type:'checkbox', style:'width:auto', checked: g?.memberIds.includes(s.id) || false});
     cb.dataset.sid = s.id;
@@ -4221,9 +4304,12 @@ function editGroup(id) {
       el('label', {class:'field'}, el('span',{},'Формат'), fmt),
       el('label', {class:'field'}, el('span',{},'Длительность'), dur),
       el('label', {class:'field'}, el('span',{},'Ставка с участника'), rate)),
-    el('label', {class:'field'}, el('span',{},'Своя ссылка на видео и доску'), meetUrlIn,
+    el('label', {class:'field'}, el('span',{},'Ссылка на видео'), meetUrlIn,
       el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
-        'Только для онлайн-занятий. Если пусто — «Войти на доску» откроет автоматическую ссылку на Jitsi. Впишите сюда постоянную ссылку комнаты в другом сервисе (например, Bitpaper) — кнопки в карточке занятия начнут использовать её.')),
+        'Только для онлайн-занятий. Пусто — кабинет создаёт ссылку сам.')),
+    el('label', {class:'field'}, el('span',{},'Ссылка на доску'), boardUrlIn,
+      el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
+        'Отдельная доска для письма. Пусто — берётся общая доска из «Помощи».')),
     el('div', {class:'field'},
       el('span', {style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600'}, 'Состав группы'),
       el('div', {style:'display:grid;gap:6px;margin-top:8px'}, boxes))
@@ -4231,8 +4317,11 @@ function editGroup(id) {
     if (!name.value.trim()) return 'Введите название.';
     if (meetUrlIn.value.trim() && !normalizeMeet(meetUrlIn.value))
       return 'Ссылка на видео и доску не похожа на адрес. Скопируйте её из адресной строки браузера — или очистите поле, тогда кабинет создаст ссылку сам.';
+    if (boardUrlIn.value.trim() && !normalizeMeet(boardUrlIn.value))
+      return 'Ссылка на доску не похожа на адрес. Скопируйте её из адресной строки браузера.';
     const memberIds = boxes.map(b => b.querySelector('input')).filter(i => i.checked).map(i => i.dataset.sid);
-    const d = {name:name.value.trim(), cls:cls.value.trim() || '6', format:fmt.value, duration:+dur.value, rate:+rate.value || 0, meetUrl: normalizeMeet(meetUrlIn.value), memberIds};
+    const d = {name:name.value.trim(), cls:cls.value.trim() || '6', format:fmt.value, duration:+dur.value, rate:+rate.value || 0,
+      meetUrl: normalizeMeet(meetUrlIn.value), boardUrl: normalizeMeet(boardUrlIn.value), memberIds};
     let gid;
     if (g) { Object.assign(g, d); gid = g.id; }
     else { gid = uid(); S.groups.push({id:gid, ...d}); S.routes.push({id:uid(), ownerType:'group', ownerId:gid, topicIds:[]}); }
@@ -4572,6 +4661,28 @@ function normalizeMeet(raw) {
   if (!/\s/.test(v) && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}([\/?#]|$)/i.test(v)) return 'https://' + v;
   return '';
 }
+/* Доска может быть отдельной от видео: у Jitsi она слабая (курсор-крестик,
+   прыгает толщина, нельзя подложить страницу учебника), поэтому кабинет
+   разрешает вести занятие в одном окне, а писать — в другом, нормальном. */
+function boardUrl(ownerType, ownerId) {
+  const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
+  const own = o ? normalizeMeet(o.boardUrl) : '';
+  if (own) return own;
+  const common = normalizeMeet(S.boardBase);
+  if (common) return common;
+  return '';                      // своей доски нет — значит доска внутри видео
+}
+const hasBoard = (ownerType, ownerId) => !!boardUrl(ownerType, ownerId);
+
+function openBoard(ownerType, ownerId) {
+  const url = boardUrl(ownerType, ownerId) || meetUrl(ownerType, ownerId);
+  if (!url) return toast('Сначала выберите ученика или группу');
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.append(a); a.click(); a.remove();
+  toast('Открываю доску в новой вкладке');
+}
+
 /* Своя это ссылка или кабинет создал её сам */
 function meetIsOwn(ownerType, ownerId) {
   const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
@@ -4601,7 +4712,10 @@ function copyMeet(ownerType, ownerId) {
   if (!url) return;
   /* Обещание «ничего устанавливать не нужно» верно только для нашей доски:
      чужой сервис вроде Zoom вполне может попросить программу. */
-  const text = `Ссылка на занятие (видео и общая доска): ${url}` +
+  const board = boardUrl(ownerType, ownerId);
+  const text = (board
+    ? `Занятие онлайн.\nВидео: ${url}\nДоска для письма: ${board}`
+    : `Ссылка на занятие (видео и общая доска): ${url}`) +
     (meetIsOwn(ownerType, ownerId) ? '' : '\nОткрывается в браузере, ничего устанавливать не нужно.');
   const byHand = () => showLinkDialog(text);
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -4610,12 +4724,60 @@ function copyMeet(ownerType, ownerId) {
   } else byHand();
 }
 
+/* Видео маленьким окном поверх всего остального.
+   Доска занимает весь экран, а ученик виден в уголке — как кружок в мессенджере.
+   Chrome умеет держать такое окно поверх других программ; если не умеет,
+   открываем обычное маленькое окно рядом. */
+let pipWin = null;
+async function openMeetSmall(ownerType, ownerId) {
+  const url = meetUrl(ownerType, ownerId);
+  if (!url) return toast('Сначала выберите ученика или группу');
+  const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
+  const title = o ? o.name : 'Занятие';
+
+  if (window.documentPictureInPicture) {
+    try {
+      if (pipWin && !pipWin.closed) pipWin.close();
+      pipWin = await documentPictureInPicture.requestWindow({width: 340, height: 250});
+      const d = pipWin.document;
+      d.title = 'Видео · ' + title;
+      const st = d.createElement('style');
+      st.textContent = `html,body{margin:0;height:100%;background:#16222E;color:#D6E2EC;
+        font-family:system-ui,-apple-system,'Segoe UI',sans-serif;overflow:hidden}
+        .bar{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:12px}
+        .bar b{font-weight:600;font-size:12.5px}
+        .bar button{margin-left:auto;font:inherit;background:none;border:1px solid #3E6B8F;
+          color:#D6E2EC;border-radius:7px;padding:2px 8px;cursor:pointer}
+        iframe{border:0;width:100%;height:calc(100% - 28px);display:block}`;
+      d.head.append(st);
+      const bar = d.createElement('div');
+      bar.className = 'bar';
+      const name = d.createElement('b'); name.textContent = title;
+      const close = d.createElement('button'); close.textContent = 'Завершить';
+      close.onclick = () => pipWin && pipWin.close();
+      bar.append(name, close);
+      const fr = d.createElement('iframe');
+      fr.src = url;
+      fr.allow = 'camera; microphone; fullscreen; display-capture; autoplay';
+      d.body.append(bar, fr);
+      toast('Видео в маленьком окне — оно держится поверх доски');
+      return;
+    } catch (e) { /* не дали — открываем обычным окном */ }
+  }
+  const w = window.open(url, 'tochka-video', 'width=360,height=280,menubar=no,toolbar=no');
+  if (w) toast('Видео открыто отдельным окном — поставьте его в угол экрана');
+  else toast('Браузер не дал открыть окно — разрешите всплывающие окна для этой страницы');
+}
+
 /* Отправить ссылку ученику: мессенджер, почта или просто копирование */
 function sendMeetDialog(ownerType, ownerId) {
   const url = meetUrl(ownerType, ownerId);
   if (!url) { toast('Сначала выберите ученика или группу'); return; }
   const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
-  const text = `Ссылка на занятие (видео и общая доска): ${url}` +
+  const board = boardUrl(ownerType, ownerId);
+  const text = (board
+    ? `Занятие онлайн.\nВидео: ${url}\nДоска для письма: ${board}`
+    : `Ссылка на занятие (видео и общая доска): ${url}`) +
     (meetIsOwn(ownerType, ownerId) ? '' : '\nОткрывается в браузере, ничего устанавливать не нужно.');
   const phone = String((o && o.phone) || '').replace(/\D/g, '');
   const dlg = $('#formDlg');
@@ -4837,6 +4999,8 @@ async function downloadFile(filename, text) {
     if (dl) { await dl.save({filename, data: text}); toast('Файл сохранён'); return; }
     if (nativeSave(filename, text)) return;
   } catch (e) { /* отказ или недоступно — падаем в запасной путь */ }
+  /* Картинку в буфер как текст не положишь — просто говорим честно */
+  if (text instanceof Blob) { toast('Не удалось сохранить файл'); return; }
   try {
     await navigator.clipboard.writeText(text);
     toast('Сохранение недоступно — текст скопирован в буфер');
