@@ -570,6 +570,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
+const VERSION = '31 августа 2026';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -774,6 +775,24 @@ function migrate(d) {
     }
     delete l.attendance; delete l.paid;
   });
+
+  /* Уже отмеченным занятиям проставляем цену и состав того дня — по нынешним
+     карточкам, чтобы цифры не сдвинулись. Дальше они живут своей жизнью. */
+  (d.lessons || []).forEach(l => {
+    if (!l.marks || !Object.keys(l.marks).length) return;
+    const g = l.ownerType === 'group' ? (d.groups || []).find(x => x.id === l.ownerId) : null;
+    if (l.ownerType === 'group' && !Array.isArray(l.members)) {
+      const ids = g ? g.memberIds.slice() : [];
+      for (const sid of Object.keys(l.marks)) if (!ids.includes(sid)) ids.push(sid);
+      l.members = ids;
+    }
+    l.rates = l.rates || {};
+    for (const sid of Object.keys(l.marks)) {
+      if (l.rates[sid] != null) continue;
+      if (l.ownerType === 'group') l.rates[sid] = g ? g.rate : 0;
+      else { const st = (d.students || []).find(x => x.id === sid); l.rates[sid] = st ? (st.rate || 0) : 0; }
+    }
+  });
   return d;
 }
 
@@ -807,16 +826,41 @@ const PAY_MODES = ['за занятие', 'помесячно после', 'пр
    «был» — это про ученика, «проведено» — про занятие. */
 const MARK_LABEL = {'был': 'присутствовал', 'пропуск': 'пропуск', 'перенос': 'перенос'};
 
-/* Кто участвует в занятии: сам ученик или все участники группы */
+/* Кто участвует в занятии. Как только занятие отмечено, его состав и цены
+   запоминаются прямо в нём: после этого можно менять ставку и состав группы —
+   прошедшие занятия и отданные родителям отчёты не переписываются. */
 function participants(l) {
-  if (l.ownerType === 'student') { const st = student(l.ownerId); return st ? [st] : []; }
-  const g = group(l.ownerId);
-  return g ? g.memberIds.map(student).filter(Boolean) : [];
+  const out = [];
+  const push = st => { if (st && !out.some(x => x.id === st.id)) out.push(st); };
+  if (l.ownerType === 'student') push(student(l.ownerId));
+  else if (Array.isArray(l.members) && l.members.length) l.members.forEach(id => push(student(id)));
+  else { const g = group(l.ownerId); if (g) g.memberIds.forEach(id => push(student(id))); }
+  /* Кто отмечен на занятии — остаётся в нём навсегда, даже если потом ушёл из группы */
+  for (const sid of Object.keys(l.marks || {})) push(student(sid));
+  return out;
 }
-/* Сколько стоит занятие для одного ученика */
-function rateFor(l, sid) {
+/* Ставка по нынешним карточкам */
+function liveRate(l, sid) {
   if (l.ownerType === 'group') { const g = group(l.ownerId); return g ? g.rate : 0; }
-  const st = student(sid); return st ? st.rate : 0;
+  const st = student(sid);
+  if (!st) return 0;
+  if (st.rate) return st.rate;
+  /* участник группы на отдельном занятии, если своя ставка не указана */
+  const g = st.groupId ? group(st.groupId) : null;
+  return g ? g.rate : 0;
+}
+/* Сколько стоит занятие для одного ученика: цена того дня или нынешняя ставка */
+function rateFor(l, sid) {
+  if (l.rates && l.rates[sid] != null) return Number(l.rates[sid]) || 0;
+  return liveRate(l, sid);
+}
+/* Запоминает состав и цены в момент отметки */
+function freezeLesson(l) {
+  if (!l.marks || !Object.keys(l.marks).length) return l;
+  if (l.ownerType === 'group' && !Array.isArray(l.members)) l.members = participants(l).map(st => st.id);
+  l.rates = l.rates || {};
+  for (const sid of Object.keys(l.marks)) if (l.rates[sid] == null) l.rates[sid] = liveRate(l, sid);
+  return l;
 }
 const markOf = (l, sid) => (l.marks && l.marks[sid]) || null;
 const isMarked = l => l.marks && Object.keys(l.marks).length > 0;
@@ -1512,6 +1556,7 @@ function quickMark(l, status) {
   l.marks = l.marks || {};
   for (const st of participants(l)) l.marks[st.id] = { s: status, ch: status === 'был' };
   l.done = true;
+  freezeLesson(l);
   save('Отмечено занятие: ' + status);
 }
 
@@ -3081,6 +3126,7 @@ function viewHelp() {
           }, 'Очистить всё')),
         el('div', {style:'margin-top:14px; padding-top:14px; border-top:1px solid var(--line)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Сохранность данных'}),
+          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION),
           el('div', {class:'meta', style:'font-size:13px'},
             'Последняя копия: ' + (lastBackup() ? fmtDate(lastBackup()) + ' (' + daysSinceBackup() + ' ' + plural(daysSinceBackup(),'день','дня','дней') + ' назад)' : 'ещё не сохранялась')),
           el('div', {class:'meta', style:'font-size:13px'},
@@ -3107,7 +3153,7 @@ function viewHelp() {
 
 /* ═══════════ КАРТОЧКА ЗАНЯТИЯ ═══════════ */
 function newLesson(date, ownerType, ownerId, topicId) {
-  if (!S.students.some(s => s.type !== 'группа') && !S.groups.length) {
+  if (!S.students.length && !S.groups.length) {
     toast('Сначала добавьте ученика или группу');
     go('people'); editStudent(null);
     return;
@@ -3126,8 +3172,8 @@ function newLesson(date, ownerType, ownerId, topicId) {
   const dur = o?.duration || 60;
   const l = {
     id: uid(), date: theDate, time: firstFreeTime(theDate, dur),
-    ownerType: ownerType || (S.students.some(s => s.type !== 'группа') ? 'student' : 'group'),
-    ownerId: ownerId || (S.students.find(s => s.type !== 'группа')?.id || S.groups[0]?.id),
+    ownerType: ownerType || (S.students.length ? 'student' : 'group'),
+    ownerId: ownerId || (S.students[0]?.id || S.groups[0]?.id),
     duration: dur, topicId: topicId || null, goal: '', materialIds: [], note: '',
     done: false, marks: {}, result: '', homework: '', isNew: true
   };
@@ -3139,9 +3185,12 @@ function openLessonCard(L, isNew) {
   const dlg = $('#lessonDlg');
   const draft = {...L};
 
+  /* В списке и группы, и отдельные ученики, и участники групп — последним
+     иногда ставят разовое занятие сверх группового. */
   const ownerOpts = [
     ...S.groups.map(g => ({v:'group:'+g.id, t:g.name + ' (группа)'})),
-    ...S.students.filter(s => s.type !== 'группа').map(s => ({v:'student:'+s.id, t:s.name + ' · ' + s.cls + ' класс'}))
+    ...S.students.filter(s => s.type !== 'группа').map(s => ({v:'student:'+s.id, t:s.name + ' · ' + s.cls + ' класс'})),
+    ...S.students.filter(s => s.type === 'группа').map(s => ({v:'student:'+s.id, t:s.name + ' · отдельное занятие'}))
   ];
   const ownerSel = el('select', {}, ...ownerOpts.map(o => el('option', {value:o.v, selected:o.v === draft.ownerType+':'+draft.ownerId}, o.t)));
   const dateIn = el('input', {type:'date', value:draft.date});
@@ -3252,6 +3301,7 @@ function openLessonCard(L, isNew) {
   const marks = JSON.parse(JSON.stringify(draft.marks || {}));
   const afterBox = el('div', {class:'after'});
   const sumLine = el('div', {class:'sum-line'});
+  const rateNote = el('div', {class:'meta', style:'font-size:12.5px; margin-top:4px'});
 
   function renderAfter() {
     const [ot, oid] = ownerSel.value.split(':');
@@ -3291,6 +3341,7 @@ function openLessonCard(L, isNew) {
       }
     }
     afterBox.append(sumLine);
+    afterBox.append(rateNote);
     afterBox.append(el('div', {class:'meta', style:'font-size:12.5px'},
       'Пропуск и перенос по умолчанию не начисляются. Если предупредили поздно — поставьте «начислить» вручную.'));
     updateSum();
@@ -3300,6 +3351,19 @@ function openLessonCard(L, isNew) {
     const fake = {...draft, ownerType: ot, ownerId: oid};
     const total = participants(fake).reduce((sum, st) => sum + (marks[st.id] && marks[st.id].ch ? rateFor(fake, st.id) : 0), 0);
     sumLine.innerHTML = 'К начислению за занятие: ' + money(total);
+
+    /* Цена занятия закреплена в день отметки. Если ставку с тех пор поменяли —
+       говорим об этом и даём пересчитать вручную. */
+    rateNote.textContent = '';
+    const changed = Object.keys(draft.rates || {})
+      .filter(sid => marks[sid] && marks[sid].s && Number(draft.rates[sid]) !== liveRate(fake, sid));
+    if (changed.length) {
+      rateNote.append(el('span', {text: 'Цена этого занятия закреплена в день отметки, нынешняя ставка другая. '}));
+      rateNote.append(el('button', {type:'button', class:'btn btn-sm', style:'margin-left:6px', onclick: () => {
+        draft.rates = {};
+        renderAfter();
+      }}, 'Пересчитать по нынешней ставке'));
+    }
   }
 
   const resIn = el('textarea', {placeholder:'Что получилось, где затык — попадёт в отчёт родителям'}); resIn.value = draft.result || '';
@@ -3388,7 +3452,12 @@ function openLessonCard(L, isNew) {
       result: resIn.value.trim(), homework: hwIn.value.trim(),
       auto: draft.auto || false
     };
+    /* Если занятие переписали на другого ученика или группу — прежние
+       цена и состав к нему больше не относятся. */
+    const sameOwner = ot === draft.ownerType && oid === draft.ownerId;
+    if (sameOwner) { data.members = draft.members; data.rates = draft.rates; }
     data.done = Object.keys(data.marks).length > 0;
+    freezeLesson(data);
     const idx = S.lessons.findIndex(x => x.id === draft.id);
     if (idx >= 0) S.lessons[idx] = data; else S.lessons.push(data);
     dlg.close(); lessonDraft.clear(); save(isNew ? 'Добавлено занятие' : 'Изменено занятие'); toast(isNew ? 'Занятие добавлено' : 'Карточка сохранена');
