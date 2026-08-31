@@ -1282,11 +1282,14 @@ async function openMaterialFile(m, startPage) {
   /* Страницу учебника часто нужно положить на доску и писать поверх. Доски
      принимают картинку, а не PDF, поэтому кабинет отдаёт готовую картинку
      страницы: в буфер обмена (вставляется в доску Ctrl+V) или файлом. */
-  async function pageToPng() {
+  /* Доски не принимают картинку тяжелее 3 МБ. Обычная страница весит
+     сотни килобайт, но скан с фотографиями бывает тяжёлым — тогда кабинет
+     сам делает её мельче, пока не уложится, чтобы вставка не сорвалась. */
+  const BOARD_MAX = 2400000;
+  async function pageAtWidth(want) {
     const pg = await doc.getPage(Math.min(Math.max(1, page), doc.numPages));
     const base = pg.getViewport({scale: 1});
-    /* Фиксированная крупная ширина: на доске страница должна остаться читаемой */
-    const scale = Math.min(3, Math.max(1, 1600 / base.width));
+    const scale = Math.min(3, Math.max(0.6, want / base.width));
     const vp = pg.getViewport({scale});
     const c = document.createElement('canvas');
     c.width = vp.width; c.height = vp.height;
@@ -1294,6 +1297,16 @@ async function openMaterialFile(m, startPage) {
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
     await pg.render({canvasContext: ctx, viewport: vp}).promise;
     return new Promise(res => c.toBlob(res, 'image/png'));
+  }
+  async function pageToPng() {
+    let last = null;
+    for (const w of [1600, 1200, 950]) {
+      const blob = await pageAtWidth(w);
+      if (!blob) continue;
+      last = blob;
+      if (blob.size <= BOARD_MAX) return blob;
+    }
+    return last;
   }
 
   const boardBtn = el('button', {class:'btn btn-sm', title:'Скопировать страницу картинкой, чтобы вставить на доску',
@@ -2169,6 +2182,9 @@ function viewPersonCard() {
         onclick:() => openMeetSmall(isG ? 'group' : 'student', id)}, 'Видео в уголке') : null,
       (o.format === 'онлайн' && hasBoard(isG ? 'group' : 'student', id)) ? el('button', {class:'btn btn-sm',
         onclick:() => openBoard(isG ? 'group' : 'student', id)}, 'Открыть доску') : null,
+      (o.format === 'онлайн' && !hasBoard(isG ? 'group' : 'student', id)) ? el('button', {class:'btn btn-sm',
+        title:'Бесплатная доска для письма — кабинет создаст её сам',
+        onclick:() => { giveBoard(isG ? 'group' : 'student', id); render(); toast('Доска заведена — ссылка постоянная'); }}, 'Завести доску') : null,
       o.format === 'онлайн' ? el('button', {class:'btn btn-sm',
         onclick:() => sendMeetDialog(isG ? 'group' : 'student', id)}, 'Отправить ссылку') : null,
       el('button', {class:'btn btn-sm', onclick:() => isG ? editGroup(o.id) : editStudent(o.id)}, 'Редактировать'),
@@ -3426,7 +3442,7 @@ function viewHelp() {
   const curSel = el('select', {style:'max-width:140px', onchange: e => { S.currency = e.target.value; save('Изменена валюта'); }},
     ...['₼','₽','€','$','₸'].map(c => el('option', {value:c, selected:S.currency===c}, c)));
   const boardBaseIn = el('input', {type:'text', value: S.boardBase || '',
-    placeholder:'например, whiteboard.fi/ваша-комната', onchange: e => {
+    placeholder:'пусто — нажмите «Завести доску»', onchange: e => {
       const v = normalizeMeet(e.target.value);
       if (e.target.value.trim() && !v) { toast('Это не похоже на адрес — скопируйте ссылку из адресной строки'); return; }
       S.boardBase = v; save('Изменена общая доска');
@@ -3520,12 +3536,28 @@ function viewHelp() {
           el('div', {class:'meta', style:'font-size:13px'},
             'Доска внутри видео — простая: курсор-крестик вместо пера, прыгает толщина линии, нельзя подложить страницу учебника. Поэтому доску можно вести отдельно: впишите сюда адрес своей доски, и рядом с «Войти на видео» появится кнопка «Открыть доску», а ученику уйдут сразу две ссылки.'),
           el('label', {class:'field', style:'margin-top:10px'}, el('span',{},'Общая доска для всех занятий'), boardBaseIn),
+          el('div', {class:'row', style:'gap:8px; margin:6px 0 4px; align-items:baseline'},
+            el('button', {type:'button', class:'btn btn-sm', onclick:() => {
+              const url = newBoardLink();
+              boardBaseIn.value = url; S.boardBase = url; save('Заведена общая доска');
+              toast('Общая доска заведена — она будет открываться на всех занятиях');
+            }}, 'Завести доску'),
+            el('span', {class:'meta', style:'font-size:12.5px'},
+              'Кабинет сам создаст комнату — бесплатно, без регистрации и без пробных периодов')),
           el('div', {class:'meta', style:'font-size:13px'},
             'Чтобы доска занимала весь экран, а ученик был виден в уголке, нажмите «Видео в уголке»: откроется маленькое окно с видео, которое держится поверх остальных окон — как кружок в мессенджере. Доску после этого можно раскрыть на весь экран. Окно перетаскивается мышью и закрывается кнопкой «Завершить». Если браузер такое окно держать поверх не умеет, видео откроется обычным маленьким окном — поставьте его в угол экрана.'),
           el('div', {class:'meta', style:'font-size:13px'},
             'Страницу учебника можно положить на доску: откройте учебник в «Материалах», найдите нужную страницу и нажмите «⧉ На доску» — страница ляжет в буфер обмена картинкой, а на доске останется нажать Ctrl+V и писать поверх. Если браузер копировать не даст, кабинет сохранит страницу картинкой на компьютер.'),
           el('div', {class:'meta', style:'font-size:12.5px'},
-            'Что вписать: адрес своей комнаты на whiteboard.fi (сделан для учителей: у каждого ученика своя доска, вход по коду без регистрации, можно подложить картинку или PDF и писать поверх) либо ссылку общей комнаты excalidraw.com (одна доска на двоих, нормальное перо, картинки перетаскиванием). Годится любой другой сервис — кабинет просто открывает адрес.'),
+            'Про деньги, честно. Кнопка «Завести доску» создаёт комнату на excalidraw.com. Совместное рисование там бесплатное и без пробного периода: платят только за облачное хранение досок и работу командой, а для занятий это не нужно. Регистрация не требуется ни вам, ни ученику — заходят по ссылке.'),
+          el('div', {class:'meta', style:'font-size:12.5px'},
+            'Что доска умеет: перо, фигуры и стрелки, текст, ластик, бесконечный лист с приближением, картинки перетаскиванием и через Ctrl+V — значит, страница учебника ложится на неё кнопкой «⧉ На доску». Пишут одновременно оба, каждый видит курсор другого. Это та же доска, что встроена в видеозвонок, только полная — привычный вид, но с картинками и всеми инструментами.'),
+          el('div', {class:'meta', style:'font-size:12.5px'},
+            'Про текст: русский пишется и рукописным шрифтом, и обычным — буквы не ломаются. Кириллицы нет только у третьего, «машинописного» шрифта: если выбрать его, русские буквы покажутся другим шрифтом. Отдельного набора формул на доске нет — дроби, степени и корни пишут пером, как на бумаге, или собирают текстом.'),
+          el('div', {class:'meta', style:'font-size:12.5px'},
+            'Что важно знать: комната живёт, пока в ней кто-то есть. Нарисованное на прошлом занятии само по себе не сохранится — если нужно оставить, сохраните картинкой прямо на доске (значок сохранения в левом верхнем углу) и приложите к материалам. Сама ссылка постоянная: отправили ученику один раз, она работает весь год.'),
+          el('div', {class:'meta', style:'font-size:12.5px'},
+            'Хотите другой сервис — впишите его адрес сюда, кабинет просто откроет ссылку. У whiteboard.fi, например, бесплатная часть есть, но многие возможности отданы в платный Premium, поэтому кабинет по умолчанию её не предлагает.'),
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:14px 0 8px', text:'Как диктовать голосом'}),
           el('div', {class:'meta', style:'font-size:13px'},
             'Способ, который работает всегда: поставьте курсор в поле и включите диктовку самого устройства. На Windows — Win+H, на телефоне — значок микрофона на клавиатуре.'),
@@ -3700,6 +3732,14 @@ function openLessonCard(L, isNew) {
     onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openBoard(ot, oid); }}, 'Открыть доску');
   const smallBtn = el('button', {class:'btn btn-sm', type:'button', title:'Видео маленьким окном поверх доски',
     onclick:() => { const [ot, oid] = ownerSel.value.split(':'); openMeetSmall(ot, oid); }}, 'Видео в уголке');
+  const newBoardBtn = el('button', {class:'btn btn-sm', type:'button',
+    title:'Бесплатная доска для письма — кабинет создаст её сам',
+    onclick:() => {
+      const [ot, oid] = ownerSel.value.split(':');
+      if (!giveBoard(ot, oid)) return toast('Сначала выберите ученика или группу');
+      syncMeetBtns();
+      toast('Доска заведена — ссылка постоянная, отправьте её ученику кнопкой «Отправить ссылку»');
+    }}, 'Завести доску');
   const copyBtn = el('button', {class:'btn btn-ghost btn-sm', type:'button',
     onclick:() => { const [ot, oid] = ownerSel.value.split(':'); sendMeetDialog(ot, oid); }}, 'Отправить ссылку');
   function syncMeetBtns() {
@@ -3709,6 +3749,7 @@ function openLessonCard(L, isNew) {
     meetBtn.style.display = online ? '' : 'none';
     copyBtn.style.display = online ? '' : 'none';
     boardBtn.style.display = (online && hasBoard(ot, oid)) ? '' : 'none';
+    newBoardBtn.style.display = (online && !hasBoard(ot, oid)) ? '' : 'none';
     smallBtn.style.display = online ? '' : 'none';
   }
   ownerSel.addEventListener('change', syncMeetBtns);
@@ -3898,7 +3939,7 @@ function openLessonCard(L, isNew) {
       el('label', {class:'field'}, el('span',{},'Длительность'), durSel)),
     el('div', {class:'row'},
       el('button', {class:'btn btn-sm', type:'button', onclick:() => openPicker(draft.id, (d, t) => { dateIn.value = d; timeIn.value = t; checkClash(); })}, 'Выбрать время в расписании'),
-      meetBtn, smallBtn, boardBtn, copyBtn,
+      meetBtn, smallBtn, boardBtn, newBoardBtn, copyBtn,
       warn),
     methodBox,
     matBox,
@@ -4296,8 +4337,16 @@ function editStudent(id) {
     el('label', {class:'field'}, el('span',{},'Ссылка на видео'), meetUrlIn,
       el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
         'Только для онлайн-занятий. Пусто — кабинет создаёт ссылку сам. Впишите свою постоянную ссылку, если ведёте занятия в другом сервисе.')),
-    el('label', {class:'field'}, el('span',{},'Ссылка на доску'), boardUrlIn,
-      el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
+    el('div', {},
+      el('label', {class:'field'}, el('span',{},'Ссылка на доску'), boardUrlIn),
+      el('div', {class:'row', style:'gap:8px; margin-top:6px; align-items:baseline'},
+        el('button', {type:'button', class:'btn btn-sm', onclick:() => {
+          boardUrlIn.value = newBoardLink();
+          toast('Доска заведена — сохраните карточку и отправьте ссылку ученику');
+        }}, 'Завести доску'),
+        el('span', {class:'meta', style:'font-size:12.5px'},
+          'Бесплатно и без регистрации: кабинет создаст ученику постоянную комнату на excalidraw.com')),
+      el('div', {class:'meta', style:'font-size:12.5px; margin-top:4px'},
         'Отдельная доска для письма — если та, что внутри видео, не устраивает. Пусто — берётся общая доска из «Помощи», а если и её нет, пишут в видео.')),
     el('label', {class:'field'}, el('span',{},'Заметка'), note)
   ], () => {
@@ -4353,8 +4402,16 @@ function editGroup(id) {
     el('label', {class:'field'}, el('span',{},'Ссылка на видео'), meetUrlIn,
       el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
         'Только для онлайн-занятий. Пусто — кабинет создаёт ссылку сам.')),
-    el('label', {class:'field'}, el('span',{},'Ссылка на доску'), boardUrlIn,
-      el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
+    el('div', {},
+      el('label', {class:'field'}, el('span',{},'Ссылка на доску'), boardUrlIn),
+      el('div', {class:'row', style:'gap:8px; margin-top:6px; align-items:baseline'},
+        el('button', {type:'button', class:'btn btn-sm', onclick:() => {
+          boardUrlIn.value = newBoardLink();
+          toast('Доска заведена — сохраните карточку и отправьте ссылку ученикам');
+        }}, 'Завести доску'),
+        el('span', {class:'meta', style:'font-size:12.5px'},
+          'Бесплатно и без регистрации: кабинет создаст группе постоянную комнату на excalidraw.com')),
+      el('div', {class:'meta', style:'font-size:12.5px; margin-top:4px'},
         'Отдельная доска для письма. Пусто — берётся общая доска из «Помощи».')),
     el('div', {class:'field'},
       el('span', {style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600'}, 'Состав группы'),
@@ -4710,6 +4767,28 @@ function normalizeMeet(raw) {
 /* Доска может быть отдельной от видео: у Jitsi она слабая (курсор-крестик,
    прыгает толщина, нельзя подложить страницу учебника), поэтому кабинет
    разрешает вести занятие в одном окне, а писать — в другом, нормальном. */
+/* Постоянная доска для ученика без чужих подписок.
+   Кабинет сам собирает адрес комнаты на excalidraw.com: у сервиса совместное
+   рисование входит в бесплатную часть, регистрация не нужна, вход по ссылке.
+   Адрес комнаты — это случайный номер и ключ шифрования: ключ стоит после
+   решётки, поэтому на сервер он не уходит и содержимое доски видно только
+   тем, у кого есть ссылка. */
+function newBoardLink() {
+  const rnd = n => { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; };
+  const room = [...rnd(10)].map(b => b.toString(16).padStart(2, '0')).join('');
+  let bin = ''; rnd(16).forEach(b => { bin += String.fromCharCode(b); });
+  const key = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return 'https://excalidraw.com/#room=' + room + ',' + key;
+}
+
+/* Завести доску тому, у кого её ещё нет; вернуть адрес */
+function giveBoard(ownerType, ownerId) {
+  const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
+  if (!o) return '';
+  if (!normalizeMeet(o.boardUrl)) { o.boardUrl = newBoardLink(); save('Заведена доска'); }
+  return o.boardUrl;
+}
+
 function boardUrl(ownerType, ownerId) {
   const o = ownerType === 'group' ? group(ownerId) : student(ownerId);
   const own = o ? normalizeMeet(o.boardUrl) : '';
