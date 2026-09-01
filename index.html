@@ -526,7 +526,9 @@ body{
   transition:box-shadow .22s var(--ease), transform .22s var(--ease), border-color .2s;
 }
 @media (hover:hover) and (prefers-reduced-motion: no-preference){
-  .card:hover{ transform:translateY(-2px); box-shadow:var(--sh-lift); }
+  /* Карточка не двигается под курсором — только чуть глубже тень.
+     Подпрыгивание крупных блоков мешает читать. */
+  .card:hover{ box-shadow:var(--sh-lift); }
 }
 
 /* Занятие в ленте дня: приподнимается и слегка поворачивается вслед за курсором */
@@ -545,7 +547,7 @@ body{
 @media (hover:hover) and (prefers-reduced-motion: no-preference){
   .lesson:hover{ transform:translateX(2px) }
   .lesson.is-tilt{
-    transform:perspective(760px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) translateY(-3px) scale(1.006);
+    transform:perspective(900px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));
     box-shadow:var(--sh-lift);
   }
   .lesson.is-tilt::after{ opacity:1 }
@@ -589,18 +591,15 @@ dialog::backdrop{ background:rgba(16,26,36,.44) }
 /* Смена раздела: старый экран уходит, новый приходит снизу */
 #view{ view-transition-name:mainview }
 @media (prefers-reduced-motion: no-preference){
-  ::view-transition-old(mainview){ animation:vt-out .16s var(--ease) both }
-  ::view-transition-new(mainview){ animation:vt-in .28s var(--ease) both }
-  @keyframes vt-in{ from{ opacity:0; transform:translateY(10px) } }
-  @keyframes vt-out{ to{ opacity:0; transform:translateY(-6px) } }
+  ::view-transition-old(mainview){ animation:vt-out .12s ease-out both }
+  ::view-transition-new(mainview){ animation:vt-in .2s ease-out both }
+  @keyframes vt-in{ from{ opacity:0 } }
+  @keyframes vt-out{ to{ opacity:0 } }
 
-  /* Карточки нового раздела появляются друг за другом */
-  #view.fresh .card, #view.fresh .lesson{ animation:rise .38s var(--ease) both }
-  #view.fresh .card:nth-of-type(2), #view.fresh .lesson:nth-of-type(2){ animation-delay:.04s }
-  #view.fresh .card:nth-of-type(3), #view.fresh .lesson:nth-of-type(3){ animation-delay:.08s }
-  #view.fresh .card:nth-of-type(4), #view.fresh .lesson:nth-of-type(4){ animation-delay:.12s }
-  #view.fresh .card:nth-of-type(n+5), #view.fresh .lesson:nth-of-type(n+5){ animation-delay:.15s }
-  @keyframes rise{ from{ opacity:0; transform:translateY(12px) } }
+  /* Карточки нового раздела просто проявляются — без прыжка снизу
+     и без разнобоя по времени: содержимое должно вставать спокойно. */
+  #view.fresh .card, #view.fresh .lesson{ animation:rise .22s ease-out both }
+  @keyframes rise{ from{ opacity:0 } }
 }
 
 /* Кольцо дня */
@@ -659,6 +658,13 @@ dialog::backdrop{ background:rgba(16,26,36,.44) }
 @media (max-width:700px){
   .tour-tip{ left:50% !important; top:auto !important; bottom:16px; transform:translateX(-50%) !important }
 }
+
+/* «Без движения»: выключатель в «Помощи» — для тех, кому анимация мешает */
+html[data-calm="1"] *, html[data-calm="1"] *::before, html[data-calm="1"] *::after{
+  animation-duration:.001ms !important; animation-delay:0s !important; transition-duration:.001ms !important;
+}
+html[data-calm="1"] .lesson.is-tilt{ transform:none }
+html[data-calm="1"] .lesson::after{ display:none }
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{ animation-duration:.001ms !important; transition-duration:.001ms !important }
 }
@@ -3699,6 +3705,8 @@ function viewHelp() {
           fileIn,
           el('button', {class:'btn btn-sm', onclick: loadProgrammeDialog}, 'Восстановить программу 5–8'),
           el('button', {class:'btn btn-sm', onclick: loadDemoAsk}, 'Загрузить пример'),
+          el('button', {class:'btn btn-sm', title:'Стереть учеников, занятия и оплаты — методика и материалы останутся',
+            onclick: clearPeopleAsk}, 'Убрать учеников и занятия'),
           el('button', {
             class:'btn btn-sm', style:'color:var(--stop); border-color:var(--stop)',
             onclick:() => ask('Очистить кабинет?',
@@ -3761,6 +3769,13 @@ function viewHelp() {
             'Что важно знать: комната живёт, пока в ней кто-то есть. Нарисованное на прошлом занятии само по себе не сохранится — если нужно оставить, сохраните картинкой прямо на доске (значок сохранения в левом верхнем углу) и приложите к материалам. Сама ссылка постоянная: отправили ученику один раз, она работает весь год.'),
           el('div', {class:'meta', style:'font-size:12.5px'},
             'Хотите другой сервис — впишите его адрес сюда, кабинет просто откроет ссылку. У whiteboard.fi, например, бесплатная часть есть, но многие возможности отданы в платный Premium, поэтому кабинет по умолчанию её не предлагает.'),
+          el('label', {class:'row', style:'gap:8px; margin:10px 0 6px; align-items:flex-start'},
+            el('input', {type:'checkbox', style:'width:auto; margin-top:3px', checked: S.calm !== true,
+              onchange: e => { S.calm = !e.target.checked; applyCalm(); save('Изменено движение интерфейса'); }}),
+            el('span', {},
+              el('b', {style:'font-size:13.5px', text:'Живой интерфейс'}),
+              el('div', {class:'meta', style:'font-size:12.5px'},
+                'Карточки откликаются на курсор, разделы сменяются плавно. Снимите галочку, если движение отвлекает — всё станет неподвижным.'))),
           el('div', {class:'row', style:'margin:10px 0 14px'},
             el('button', {class:'btn btn-sm', onclick:() => startTour(true)}, 'Показать подсказки для новичка'),
             el('span', {class:'meta', style:'font-size:12.5px'},
@@ -3780,6 +3795,8 @@ function viewHelp() {
               : 'Кнопка «🎤 Голос» рядом с полями появляется в браузере Chrome, когда кабинет открыт по адресу в интернете. В этом браузере её нет — пользуйтесь диктовкой устройства.'),
           el('div', {class:'meta', style:'font-size:13px'},
             'В карточке занятия есть поле «Расскажите про занятие»: наговорите всё подряд и нажмите «Разложить по полям» — кабинет сам разнесёт по «Результату», «Домашнему заданию» и отметке. Сам рассказ остаётся в поле и сохраняется вместе с карточкой, поэтому надиктованное не пропадёт, даже если разобрать его не вышло.')),
+        el('div', {class:'meta', style:'margin-top:12px; font-size:13px'},
+          'Кнопка «Убрать учеников и занятия» нужна после знакомства с примером: она стирает учеников, занятия и оплаты, но оставляет методику, материалы и настройки. «Очистить всё» стирает вообще всё, включая темы.'),
         el('div', {class:'meta', style:'margin-top:12px'}, 'Рабочие часы задают, какую сетку показывать в расписании и в какое время подбирать свободное окно. Занятие вне этих часов всё равно покажется — сетка растянется под него. Данные лежат в этом браузере — ни ко мне, ни куда-либо ещё они не уходят. Чтобы перенести кабинет на другой компьютер, выгрузите файл и загрузите его там. «Восстановить программу 5–8» возвращает исходное тематическое планирование, если темы случайно изменили или удалили — ваши личные заметки к темам при этом пропадут. «Загрузить пример» наполняет кабинет учебными данными, чтобы посмотреть, как всё устроено; «Очистить всё» стирает весь кабинет целиком, включая ваши темы и материалы.'))));
 }
 
@@ -4131,6 +4148,16 @@ function openLessonCard(L, isNew) {
         if (went.length) { flashField(resIn); toast('Разложил по полям — проверьте ниже'); }
         else toast('Не понял, куда отнести — текст остался на месте');
       }}, 'Разложить по полям'),
+      el('button', {type:'button', class:'btn btn-sm', title:'Если кабинет перепутал: содержимое «Результата» и «Домашнего задания» поменяется местами',
+        onclick:() => {
+          const a = resIn.value.trim(), b = hwIn.value.trim();
+          if (!a && !b) return toast('Пока нечего менять местами');
+          resIn.value = b; hwIn.value = a;
+          resIn.dispatchEvent(new Event('input', {bubbles:true}));
+          hwIn.dispatchEvent(new Event('input', {bubbles:true}));
+          flashField(resIn);
+          toast('Поменяла местами: проверьте оба поля');
+        }}, '⇅ Поменять местами'),
       el('button', {type:'button', class:'btn btn-ghost btn-sm', title:'Стереть рассказ — поля ниже останутся как есть',
         onclick:() => {
           if (!tellIn.value.trim()) return;
@@ -4451,12 +4478,50 @@ function bigField(title, ta, hint) {
 }
 
 /* Разбор рассказа о занятии: что делали → «Результат», что задали → «Домашнее
-   задание», был или не был → отметка. Что не поняли — остаётся на виду. */
-const HW_RE = /(домашн|на дом\b|задал|задан|дз\b|повторить дома|дома сдела)/i;
+   задание», был или не был → отметка. Что не поняли — остаётся на виду.
+
+   Главная трудность — отличить сделанное на уроке от заданного на дом.
+   По-русски это различают три признака, их и проверяем по порядку:
+   1) речь о прошлом задании («домашнюю сделала», «в домашней ошибки») —
+      это проверка, а не новое задание;
+   2) явное указание на будущее («задала», «на дом», «к следующему разу») —
+      новое задание, причём в поле уходит только часть фразы после этих слов;
+   3) всё остальное в прошедшем времени («разобрали», «исправили») — результат. */
+
+/* Слова, после которых начинается новое задание */
+/* Важно: \b в браузере не работает с русскими буквами — границу слова
+   приходится ставить вручную через (?![а-яё]). */
+const HW_NEW_RE = /(на дом(?![а-яё])|на дому(?![а-яё])|задал[аи]?(?![а-яё])|задаю(?![а-яё])|зада[её]м(?![а-яё])|задани[ея](?![а-яё])|(?:^|[^а-яё])дз(?![а-яё])|к следующему|на следующий раз|к следующ|на завтра|дома (?:сдела|реш|повтор|доучи|выучи|дореш)|дома\s+(?:№|\d|номер|парагр|страниц|стр\.|упражн|зада)|выучить|доделать|дореша|принесёт|принести)/i;
+/* Признак того, что речь о прошлом задании, а не о новом */
+const HW_OLD_RE = /(прошл|которое задал|которые задал|что задавал|в прошлый раз|с прошлого)/i;
+/* Проверка домашней работы */
+const HW_DONE_RE = /(домашн|(?:^|[^а-яё])дз(?![а-яё])|домашк)/i;
+const HW_MARK_RE = /(сделал|выполн|не сдела|не выполн|ошиб|проверил|разобрал|забыл|принес|открыл)/i;
+
 const MISS_RE = /(не пришл|не был|пропусти|заболел|болеет|отмени|не состоял)/i;
 const MOVE_RE = /(перенес|перенос|сдвинул)/i;
 const CAME_RE = /(пришл|занимал|прошло|позанимал|отработал|был на занятии|была на занятии)/i;
-const RES_RE = /(делал|разобрал|решал|повтор|прошли|получ|ошиб|путает|затык|уверен|тяжел|легко|закрепил|тем[уые]|устал|старал|понял|поняла|не понял)/i;
+const RES_RE = /(делал|разобрал|решал|повтор|прошли|получ|ошиб|путает|затык|уверен|тяжел|легко|закрепил|тем[уые]|устал|старал|понял|поняла|не понял|исправ|объясн|considered|потренир|отработ|запомн)/i;
+/* Прошедшее время — самый надёжный признак того, что это про урок */
+const PAST_RE = /(?:^|[^а-яё])[а-яё]{2,}(?:лись|лась|ли|ла|ло|л)(?![а-яё])/i;
+
+/* Отрезать от фразы часть, начиная со слов о новом задании */
+function splitHomework(s) {
+  const m = HW_NEW_RE.exec(s);
+  if (!m) return { before: s, hw: '' };
+  /* «…разобрали задачи, дома доделать» — предлог «дома» относится к заданию,
+     поэтому он не должен оставаться в конце рассказа об уроке. */
+  const before = s.slice(0, m.index)
+    .replace(/[\s,;:—-]+$/, '')
+    .replace(/[\s,;:—-]*(?:дома|домой|на дом)$/i, '')
+    .replace(/[\s,;:—-]+$/, '');
+  let hw = s.slice(m.index)
+    .replace(/^(на дом|на дому|домой|дома|задал[аи]?|задаю|зада[её]м|задание|задания|дз)\s*[:—-]?\s*/i, '')
+    .replace(/^(к следующему разу|к следующему занятию|на следующий раз|к следующ\w*|на завтра)\s*[:—-]?\s*/i, '')
+    .trim();
+  if (!hw) hw = s.trim();
+  return { before, hw };
+}
 
 function parseLessonSpeech(text) {
   const out = { result: [], homework: [], mark: null, reason: '', hw: null, hwNote: '', rest: [] };
@@ -4464,21 +4529,58 @@ function parseLessonSpeech(text) {
     .split(/(?:[.!?;\n]+)/)
     .map(s => s.trim())
     .filter(Boolean);
+
   for (const s of parts) {
-    /* «домашку сделала», «дз не сделал», «в домашней ошибки» — это проверка
-       прошлого задания, а не новое задание на дом. */
-    if (/(домашн|дз\b|домашк)/i.test(s) && /(сделал|выполн|не сдела|не выполн|ошиб|проверил|разобрал)/i.test(s)) {
-      out.hw = /(не сдела|не выполн|ничего не)/i.test(s) ? 'нет' : (/(частич|половин|не всё|не все|ошиб)/i.test(s) ? 'частично' : 'сделана');
-      out.hwNote = out.hw === 'сделана' ? '' : s;
-      continue;
-    }
-    if (HW_RE.test(s)) { out.homework.push(s.replace(/^(на дом|домой|задал[аи]?|домашнее задание)\s*[:—-]?\s*/i, '')); continue; }
+    /* 1. Отметка о посещении разбирается первой: «не пришла», «перенесли» */
     if (MISS_RE.test(s)) { out.mark = 'пропуск'; out.reason = out.reason || s; continue; }
     if (MOVE_RE.test(s)) { out.mark = out.mark || 'перенос'; continue; }
+
+    /* 2. Проверка прошлой домашней работы: «домашнюю сделала частично»,
+          «в домашней ошибки», «дз не открыла». Слова о новом задании
+          в такой фразе означают прошлое задание, а не будущее. */
+    const aboutHw = HW_DONE_RE.test(s) && HW_MARK_RE.test(s);
+    if (aboutHw && (!HW_NEW_RE.test(s) || HW_OLD_RE.test(s) || PAST_RE.test(s))) {
+      out.hw = /(не сдела|не выполн|ничего не|не открыл|забыл)/i.test(s)
+        ? 'нет'
+        : (/(частич|половин|не всё|не все|ошиб|не дореш)/i.test(s) ? 'частично' : 'сделана');
+      /* «Домашнюю сделала, разобрали проценты» — про домашку только первая
+         половина, вторая относится к уроку. Делим по запятым. */
+      const bits = s.split(/\s*,\s*/).filter(Boolean);
+      const hwBits = bits.filter(x => HW_DONE_RE.test(x));
+      const restBits = bits.filter(x => !hwBits.includes(x) && (RES_RE.test(x) || PAST_RE.test(x)));
+      out.hwNote = out.hw === 'сделана' ? '' : (hwBits.join(', ') || s);
+      for (const r of restBits) out.result.push(r.charAt(0).toUpperCase() + r.slice(1));
+      /* «Домашнюю разобрали, задала номера 20–25» — вторая половина всё равно
+         новое задание, её отделяем. Но только если рассказ о проверке идёт
+         первым: во фразе «дз не открыла» никакого нового задания нет. */
+      const cut = splitHomework(s);
+      const m2 = HW_NEW_RE.exec(s);
+      if (cut.hw && cut.before && m2 && m2.index > 0 && !HW_OLD_RE.test(cut.hw)) out.homework.push(cut.hw);
+      continue;
+    }
+
+    /* 3. Новое задание. Если во фразе сначала рассказ об уроке, а потом
+          задание — делим: «Исправили ошибки, на следующий раз номера 20–25». */
+    if (HW_NEW_RE.test(s) && !HW_OLD_RE.test(s)) {
+      const cut = splitHomework(s);
+      if (cut.before && (RES_RE.test(cut.before) || PAST_RE.test(cut.before))) out.result.push(cut.before);
+      else if (cut.before) out.rest.push(cut.before);
+      out.homework.push(cut.hw);
+      continue;
+    }
+
+    /* 4. Пришёл или нет */
     if (CAME_RE.test(s) && !RES_RE.test(s)) { out.mark = out.mark || 'был'; continue; }
-    if (RES_RE.test(s)) { if (CAME_RE.test(s)) out.mark = out.mark || 'был'; out.result.push(s); continue; }
+
+    /* 5. Всё, что про урок */
+    if (RES_RE.test(s) || PAST_RE.test(s)) {
+      if (CAME_RE.test(s)) out.mark = out.mark || 'был';
+      out.result.push(s);
+      continue;
+    }
     out.rest.push(s);
   }
+
   /* Если ничего не похоже на рассказ о занятии — считаем рассказом всё
      остальное, чтобы надиктованное не потерялось. */
   if (!out.result.length && out.rest.length) { out.result = out.rest; out.rest = []; }
@@ -5147,6 +5249,30 @@ async function openMeetSmall(ownerType, ownerId) {
   else toast('Браузер не дал открыть окно — разрешите всплывающие окна для этой страницы');
 }
 
+/* Знакомство закончилось — пора начинать по-настоящему.
+   Стираются ученики, группы, занятия, оплаты и маршруты, а методика,
+   материалы и настройки остаются: то, что репетитор готовил, никуда не девается. */
+function clearPeopleAsk() {
+  const cnt = S.students.length + S.groups.length;
+  const topics = Object.values(S.topicBank || {}).reduce((s, a) => s + (a || []).length, 0);
+  ask('Убрать учеников и занятия?',
+    `Будут стёрты: ученики и группы (${cnt}), все занятия (${S.lessons.length}), записи об оплате (${S.payments.length}) и учебные маршруты. ` +
+    `Останутся: методика (${topics} ${plural(topics, 'тема', 'темы', 'тем')}), материалы и ваши настройки. ` +
+    'Вернуть можно кнопкой «↶ Отменить» сразу после.',
+    'Убрать учеников и занятия', () => {
+      S.students = [];
+      S.groups = [];
+      S.lessons = [];
+      S.payments = [];
+      S.routes = [];
+      ui.personId = null;
+      ui.moneyStudent = null;
+      save('Убраны ученики и занятия');
+      toast('Ученики и занятия убраны — методика на месте');
+      go('people');
+    }, true);
+}
+
 /* ═══════════ ПОДСКАЗКИ ПРИ ПЕРВОМ ВХОДЕ ═══════════
    Новый репетитор открывает пустой кабинет и не знает, с чего начать.
    Пять коротких подсказок показывают порядок: имя — ученик — занятие —
@@ -5684,10 +5810,18 @@ const VIEWS = {
 };
 /* Карточка занятия поворачивается вслед за курсором: небольшой наклон
    и световое пятно там, где мышь. На телефоне и при запрете анимации — ничего. */
+/* Спокойный режим: движение выключено совсем — либо этого просит система,
+   либо репетитор сам снял галочку в «Помощи». */
+function calmMode() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches || S.calm === true;
+}
+function applyCalm() {
+  document.documentElement.dataset.calm = S.calm === true ? '1' : '0';
+}
+
 function liveTilt() {
   const fine = window.matchMedia('(hover:hover)').matches;
-  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!fine || calm) return;
+  if (!fine) return;
   const view = $('#view');
   let node = null, raf = 0, ev = null;
   const draw = () => {
@@ -5697,8 +5831,9 @@ function liveTilt() {
     const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
     node.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
     node.style.setProperty('--my', (y * 100).toFixed(1) + '%');
-    node.style.setProperty('--ry', ((x - .5) * 5).toFixed(2) + 'deg');
-    node.style.setProperty('--rx', ((.5 - y) * 4).toFixed(2) + 'deg');
+    /* Угол намеренно маленький: заметно, что блок живой, но ничего не пляшет */
+    node.style.setProperty('--ry', ((x - .5) * 2.2).toFixed(2) + 'deg');
+    node.style.setProperty('--rx', ((.5 - y) * 1.8).toFixed(2) + 'deg');
   };
   const clear = () => {
     if (!node) return;
@@ -5707,6 +5842,7 @@ function liveTilt() {
     node = null;
   };
   view.addEventListener('mousemove', e => {
+    if (calmMode()) { clear(); return; }
     const t = e.target.closest ? e.target.closest('.lesson') : null;
     if (t !== node) { clear(); node = t; if (node) node.classList.add('is-tilt'); }
     if (!node) return;
@@ -5719,7 +5855,7 @@ function liveTilt() {
 /* Смена раздела с плавным переходом. Обычная перерисовка (набор в поле,
    пересчёт списка) идёт без анимации, чтобы ничего не мигало. */
 function renderSmooth() {
-  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const calm = calmMode();
   const after = () => {
     const v = $('#view');
     if (calm) return;
@@ -6027,6 +6163,7 @@ startTick();
 S = load();
 lastSnap = snapshot();
 restorePlace();
+applyCalm();
 render();
 liveTilt();
 setTimeout(() => startTour(false), 700);
