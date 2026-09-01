@@ -1237,6 +1237,20 @@ const routeOf = (type, id) => S.routes.find(r => r.ownerType === type && r.owner
 const lessonsOn = d => S.lessons.filter(l => l.date === d).sort((a,b) => toMin(a.time) - toMin(b.time));
 const lessonEnd = l => toMin(l.time) + l.duration;
 
+/* На групповом занятии дети разного уровня: у одной получилось, у другой нет,
+   и домашнее задание тоже бывает разным. Поэтому кроме общей записи
+   у занятия есть личная — по каждому ученику (l.per). Если личной нет,
+   берётся общая: для индивидуальных занятий ничего не меняется. */
+const perOf = (l, sid) => (l.per && l.per[sid]) || null;
+const resultFor = (l, sid) => {
+  const p = perOf(l, sid);
+  return (p && p.result) ? p.result : (l.result || '');
+};
+const homeworkFor = (l, sid) => {
+  const p = perOf(l, sid);
+  return (p && p.homework) ? p.homework : (l.homework || '');
+};
+
 /* ═══════════ ПОСТОЯННОЕ РАСПИСАНИЕ ═══════════ */
 const slotsOf = o => (o && o.slots) || [];
 const slotLabel = s => `${DOW[s.dow]} ${s.time}`;
@@ -3287,7 +3301,7 @@ function viewMoney() {
           rows.push([human ? fmtDate(l.date) : l.date, l.time, l.duration, ownerName(l),
             l.ownerType === 'group' ? 'группа' : 'индивидуально', st.name,
             t ? t.title : '', m ? (MARK_LABEL[m.s] || m.s) + (m.s === 'пропуск' && m.reason ? ' — ' + m.reason : '') : 'не отмечено',
-            m && m.ch ? rateFor(l, st.id) : 0, l.result || '', l.homework || '']);
+            m && m.ch ? rateFor(l, st.id) : 0, resultFor(l, st.id), homeworkFor(l, st.id)]);
         }
       });
     return rows;
@@ -3526,7 +3540,7 @@ function reportBlocks(st, month) {
         ? `Домашняя работа: ${HW_LABEL[l.hwCheck.s]}${l.hwCheck.note ? ' — ' + l.hwCheck.note : ''}. `
         : '';
       return [fmtDate(l.date) + (m.s !== 'был' ? ` (${MARK_LABEL[m.s] || m.s}${m.s === 'пропуск' && m.reason ? ': ' + m.reason : ''})` : ''),
-        t ? t.title : 'тема не указана', (hw + (l.result || '')).trim() || '—', l.homework || '—'];
+        t ? t.title : 'тема не указана', (hw + resultFor(l, st.id)).trim() || '—', homeworkFor(l, st.id) || '—'];
     })]});
 
   const learned = [...new Set(attended.map(l => l.topicId).filter(Boolean))].map(id => topic(id)).filter(Boolean);
@@ -3793,6 +3807,8 @@ function viewHelp() {
             speechOK()
               ? 'Второй способ: кнопка «🎤 Голос» рядом с большими полями — она уже работает в этом браузере. Нажали, сказали, нажали «Стоп».'
               : 'Кнопка «🎤 Голос» рядом с полями появляется в браузере Chrome, когда кабинет открыт по адресу в интернете. В этом браузере её нет — пользуйтесь диктовкой устройства.'),
+          el('div', {class:'meta', style:'font-size:13px'},
+            'Групповое занятие: под общими полями появляется блок «Отдельно по каждому ученику». Там своя запись и своё домашнее задание для каждого — именно они уходят в отчёт родителям. Оставили поле пустым — родителю уйдёт общий текст. А если наговорить рассказ с именами («Оля решила всё сама, Аня путает знаменатели»), кабинет сам разложит фразы по детям.'),
           el('div', {class:'meta', style:'font-size:13px'},
             'В карточке занятия есть поле «Расскажите про занятие»: наговорите всё подряд и нажмите «Разложить по полям» — кабинет сам разнесёт по «Результату», «Домашнему заданию» и отметке. Сам рассказ остаётся в поле и сохраняется вместе с карточкой, поэтому надиктованное не пропадёт, даже если разобрать его не вышло.')),
         el('div', {class:'meta', style:'margin-top:12px; font-size:13px'},
@@ -4089,6 +4105,35 @@ function openLessonCard(L, isNew) {
   const resIn = el('textarea', {placeholder:'Что получилось, где затык — попадёт в отчёт родителям'}); resIn.value = draft.result || '';
   const hwIn = el('input', {type:'text', value:draft.homework || '', placeholder:'Домашнее задание'});
 
+  /* Личные записи по участникам группы. Поля создаются заново при смене
+     ученика или группы, набранное при этом не теряется — оно живёт в perData. */
+  const perData = JSON.parse(JSON.stringify(draft.per || {}));
+  const perBox = el('div', {class:'card', style:'padding:14px; margin:4px 0; display:none'});
+  function renderPer() {
+    const [ot, oid] = ownerSel.value.split(':');
+    const people = participants({...draft, ownerType: ot, ownerId: oid});
+    if (ot !== 'group' || people.length < 2) { perBox.style.display = 'none'; perBox.textContent = ''; return; }
+    perBox.style.display = '';
+    perBox.textContent = '';
+    perBox.append(
+      el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:4px',
+        text:'Отдельно по каждому ученику'}),
+      el('div', {class:'meta', style:'font-size:12.5px; margin-bottom:10px'},
+        'У детей в группе разный уровень, и в отчёт родителям уходит именно личная запись. Оставите поле пустым — родителю уйдёт общий текст сверху.'));
+    for (const st of people) {
+      const cur = perData[st.id] || (perData[st.id] = {result:'', homework:''});
+      const rTa = el('textarea', {style:'min-height:56px', placeholder:`Что получилось у ${st.name.split(' ')[0]}, где затык`});
+      rTa.value = cur.result || '';
+      rTa.addEventListener('input', () => { cur.result = rTa.value; });
+      const hTa = el('input', {type:'text', value: cur.homework || '', placeholder:'Своё задание — если отличается от общего'});
+      hTa.addEventListener('input', () => { cur.homework = hTa.value; });
+      perBox.append(el('div', {style:'padding:10px 0; border-top:1px solid var(--line-soft)'},
+        el('div', {class:'name', style:'margin-bottom:6px', text: st.name}),
+        bigField('Что получилось', rTa),
+        el('label', {class:'field', style:'margin-top:8px'}, el('span',{},'Домашнее задание'), hTa)));
+    }
+  }
+
   /* Рассказ о занятии: наговорили или набрали одним куском — кабинет
      разложит по полям, а спорное оставит на виду. */
   const tellIn = el('textarea', {style:'min-height:70px',
@@ -4137,6 +4182,30 @@ function openLessonCard(L, isNew) {
           hwNoteIn.value = hwCheck.note;
           renderHw();
           went.push('в проверку домашней работы');
+        }
+        /* «Марина решила всё, Аня путает знаменатели» — фразы с именем
+           участника уходят в его личную запись, остальное остаётся общим. */
+        const [pot, poid] = ownerSel.value.split(':');
+        const people = participants({...draft, ownerType: pot, ownerId: poid});
+        if (pot === 'group' && people.length > 1 && p.result.length) {
+          const left = [];
+          for (const line of p.result) {
+            const who = people.find(st => {
+              const first = st.name.split(/\s+/)[0];
+              return first.length > 2 && new RegExp('(^|[^а-яё])' + first.slice(0, -1) + '[а-яё]{0,3}(?![а-яё])', 'i').test(line);
+            });
+            if (who) {
+              const cur = perData[who.id] || (perData[who.id] = {result:'', homework:''});
+              cur.result = (cur.result ? cur.result.trim() + ' ' : '') + line + '.';
+              went.push('в запись «' + who.name + '»');
+            } else left.push(line);
+          }
+          if (left.length !== p.result.length) {
+            resIn.value = left.length
+              ? (left.join('. ') + '.')
+              : '';
+            renderPer();
+          }
         }
         restIn.value = p.rest.join('. ');
         restWrap.style.display = p.rest.length ? '' : 'none';
@@ -4190,10 +4259,13 @@ function openLessonCard(L, isNew) {
     tellBox,
     bigField('Результат', resIn),
     el('label', {class:'field'}, el('span',{},'Домашнее задание на следующий раз'), hwIn),
+    perBox,
     el('div', {class:'meta'}, 'Отсюда данные сами попадают в «Посещения и оплата», отчёт родителям и историю ученика.')
   );
 
   renderAfter();
+  renderPer();
+  ownerSel.addEventListener('change', renderPer);
   ownerSel.addEventListener('change', renderAfter);
   renderHw();
   ownerSel.addEventListener('change', renderHw);
@@ -4284,6 +4356,10 @@ function openLessonCard(L, isNew) {
       /* Надиктованный рассказ хранится как есть: даже если разобрать его
          не удалось, слова репетитора не пропадают. */
       tell: tellIn.value.trim(),
+      /* Личные записи участников группы — только непустые */
+      per: Object.fromEntries(Object.entries(perData)
+        .map(([sid, v]) => [sid, {result: (v.result || '').trim(), homework: (v.homework || '').trim()}])
+        .filter(([, v]) => v.result || v.homework)),
       auto: draft.auto || false
     };
     data.hwCheck = hwCheck.s ? { s: hwCheck.s, note: hwCheck.s === 'сделана' ? '' : hwNoteIn.value.trim() } : null;
