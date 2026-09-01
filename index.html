@@ -4202,6 +4202,31 @@ function openLessonCard(L, isNew) {
   const draftNoteBox = el('div');
   const lessonDraft = draftAttach('lesson:' + draft.id,
     [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn]);
+  /* Самая обидная потеря — закрыть карточку крестиком после того, как
+     наговорил рассказ и заполнил поля. Запоминаем, с чем окно открылось,
+     и при закрытии без сохранения честно спрашиваем. */
+  let saving = false;
+  const snapForm = () => JSON.stringify([
+    ownerSel.value, topicSel.value, dateIn.value, timeIn.value, durSel.value,
+    planIn.value, noteIn.value, resIn.value, hwIn.value, tellIn.value,
+    hwCheck.s || '', hwNoteIn.value, JSON.stringify(marks)
+  ]);
+  let formWas = '';
+  const dirty = () => formWas && snapForm() !== formWas;
+
+  function closeLesson() {
+    if (!dirty()) { dlg.close(); return; }
+    ask('Закрыть без сохранения?',
+      'В карточке есть незаписанные изменения: рассказ о занятии, результат, домашняя работа или отметка. Если закрыть сейчас, они не попадут в занятие.',
+      'Закрыть без сохранения', () => { saving = true; dlg.close(); }, true);
+  }
+  /* Esc тоже закрывает окно — перехватываем и спрашиваем так же */
+  dlg.addEventListener('cancel', e => {
+    if (!dirty() || saving) return;
+    e.preventDefault();
+    closeLesson();
+  });
+
   dlg.addEventListener('close', () => micStop(true), {once:true});
   {
     const saved = lessonDraft.read();
@@ -4218,7 +4243,7 @@ function openLessonCard(L, isNew) {
       el('div', {},
         el('h2', {id:'lessonDlgT', text: isNew ? 'Новое занятие' : 'Карточка занятия'}),
         el('div', {class:'meta', text: isNew ? 'Одно занятие — одна карточка' : `${fmtDate(draft.date)} · ${draft.time}`})),
-      el('button', {class:'btn btn-ghost btn-sm', onclick:() => dlg.close()}, '✕')),
+      el('button', {class:'btn btn-ghost btn-sm', onclick: closeLesson}, '✕')),
     body,
     el('div', {class:'dlg-f'},
       !isNew ? el('button', {class:'btn btn-danger', onclick:() => ask(
@@ -4234,7 +4259,7 @@ function openLessonCard(L, isNew) {
           topicId: topicSel.value || null
         }))}, 'План через ИИ'),
       el('span', {style:'flex:1'}),
-      el('button', {class:'btn', onclick:() => dlg.close()}, 'Отмена'),
+      el('button', {class:'btn', onclick: closeLesson}, 'Отмена'),
       el('button', {class:'btn btn-primary', onclick: submit}, 'Сохранить'))
   );
 
@@ -4242,6 +4267,7 @@ function openLessonCard(L, isNew) {
     /* Если диктовка ещё идёт — останавливаем, чтобы последняя фраза
        успела лечь в поле, а не потерялась вместе с закрытием окна. */
     micStop(true);
+    saving = true;
     const clash = overlaps(dateIn.value, timeIn.value, +durSel.value, draft.id);
     if (clash) { warn.textContent = `Не сохранить: время занято (${ownerName(clash)}).`; return; }
     const [ot, oid] = ownerSel.value.split(':');
@@ -4271,6 +4297,7 @@ function openLessonCard(L, isNew) {
     if (idx >= 0) S.lessons[idx] = data; else S.lessons.push(data);
     dlg.close(); lessonDraft.clear(); save(isNew ? 'Добавлено занятие' : 'Изменено занятие'); toast(isNew ? 'Занятие добавлено' : 'Карточка сохранена');
   }
+  formWas = snapForm();
   dlg.showModal();
 }
 
@@ -4491,7 +4518,12 @@ function bigField(title, ta, hint) {
 /* Слова, после которых начинается новое задание */
 /* Важно: \b в браузере не работает с русскими буквами — границу слова
    приходится ставить вручную через (?![а-яё]). */
-const HW_NEW_RE = /(на дом(?![а-яё])|на дому(?![а-яё])|задал[аи]?(?![а-яё])|задаю(?![а-яё])|зада[её]м(?![а-яё])|задани[ея](?![а-яё])|(?:^|[^а-яё])дз(?![а-яё])|к следующему|на следующий раз|к следующ|на завтра|дома (?:сдела|реш|повтор|доучи|выучи|дореш)|дома\s+(?:№|\d|номер|парагр|страниц|стр\.|упражн|зада)|выучить|доделать|дореша|принесёт|принести)/i;
+/* Маркеры нового задания. Осторожно со словом «задание»: «разобрали задание
+   номер 11» — это про урок, а не про дом. Поэтому одиночное «задание»
+   маркером не считается, только «домашнее задание» и «задание на дом». */
+const HW_NEW_RE = /(домашн[а-яё]* задани|задани[ея] на дом|на дом(?![а-яё])|на дому(?![а-яё])|задал[аи]?(?![а-яё])|задаю(?![а-яё])|зада[её]м(?![а-яё])|(?:^|[^а-яё])дз(?![а-яё])|к следующему|на следующий раз|к следующ|на завтра|дома (?:сдела|реш|повтор|доучи|выучи|дореш)|дома\s+(?:№|\d|номер|парагр|страниц|стр\.|упражн|зада)|выучить|доделать|дореша|принесёт|принести)/i;
+/* Короткое уточнение вслед за заданием: «Страница 18 и 19», «№ 5–7» */
+const HW_CONT_RE = /^(страниц|стр\.|№|номер|упражн|парагр|пункт|глава|\d)/i;
 /* Признак того, что речь о прошлом задании, а не о новом */
 const HW_OLD_RE = /(прошл|которое задал|которые задал|что задавал|в прошлый раз|с прошлого)/i;
 /* Проверка домашней работы */
@@ -4516,7 +4548,7 @@ function splitHomework(s) {
     .replace(/[\s,;:—-]*(?:дома|домой|на дом)$/i, '')
     .replace(/[\s,;:—-]+$/, '');
   let hw = s.slice(m.index)
-    .replace(/^(на дом|на дому|домой|дома|задал[аи]?|задаю|зада[её]м|задание|задания|дз)\s*[:—-]?\s*/i, '')
+    .replace(/^(домашн[а-яё]*\s+задани[а-яё]*|задани[а-яё]*\s+на дом|на дом|на дому|домой|дома|задал[аи]?|задаю|зада[её]м|дз)\s*[:—-]?\s*/i, '')
     .replace(/^(к следующему разу|к следующему занятию|на следующий раз|к следующ\w*|на завтра)\s*[:—-]?\s*/i, '')
     .trim();
   if (!hw) hw = s.trim();
@@ -4530,10 +4562,19 @@ function parseLessonSpeech(text) {
     .map(s => s.trim())
     .filter(Boolean);
 
+  let lastWas = '';   // куда ушла предыдущая фраза: 'hw' | 'res' | ''
   for (const s of parts) {
+    /* 0. «Домашнее задание — рабочая тетрадь. Страница 18 и 19.»
+          Второе предложение само по себе ни о чём не говорит, но идёт
+          сразу за заданием — значит относится к нему. */
+    if (lastWas === 'hw' && HW_CONT_RE.test(s) && !HW_DONE_RE.test(s) && s.split(/\s+/).length <= 6) {
+      out.homework[out.homework.length - 1] += (out.homework.length ? ', ' : '') + s;
+      continue;
+    }
+
     /* 1. Отметка о посещении разбирается первой: «не пришла», «перенесли» */
-    if (MISS_RE.test(s)) { out.mark = 'пропуск'; out.reason = out.reason || s; continue; }
-    if (MOVE_RE.test(s)) { out.mark = out.mark || 'перенос'; continue; }
+    if (MISS_RE.test(s)) { out.mark = 'пропуск'; out.reason = out.reason || s; lastWas = ''; continue; }
+    if (MOVE_RE.test(s)) { out.mark = out.mark || 'перенос'; lastWas = ''; continue; }
 
     /* 2. Проверка прошлой домашней работы: «домашнюю сделала частично»,
           «в домашней ошибки», «дз не открыла». Слова о новом задании
@@ -4555,7 +4596,8 @@ function parseLessonSpeech(text) {
          первым: во фразе «дз не открыла» никакого нового задания нет. */
       const cut = splitHomework(s);
       const m2 = HW_NEW_RE.exec(s);
-      if (cut.hw && cut.before && m2 && m2.index > 0 && !HW_OLD_RE.test(cut.hw)) out.homework.push(cut.hw);
+      if (cut.hw && cut.before && m2 && m2.index > 0 && !HW_OLD_RE.test(cut.hw)) { out.homework.push(cut.hw); lastWas = 'hw'; }
+      else lastWas = '';
       continue;
     }
 
@@ -4566,6 +4608,7 @@ function parseLessonSpeech(text) {
       if (cut.before && (RES_RE.test(cut.before) || PAST_RE.test(cut.before))) out.result.push(cut.before);
       else if (cut.before) out.rest.push(cut.before);
       out.homework.push(cut.hw);
+      lastWas = 'hw';
       continue;
     }
 
@@ -4576,9 +4619,14 @@ function parseLessonSpeech(text) {
     if (RES_RE.test(s) || PAST_RE.test(s)) {
       if (CAME_RE.test(s)) out.mark = out.mark || 'был';
       out.result.push(s);
+      lastWas = 'res';
       continue;
     }
-    out.rest.push(s);
+    /* Не опознали — но это всё равно рассказ об уроке: наблюдения вроде
+       «теорию знает на отлично» глаголов прошедшего времени не содержат.
+       Кладём в «Результат», чтобы ничего не пропало. */
+    out.result.push(s);
+    lastWas = 'res';
   }
 
   /* Если ничего не похоже на рассказ о занятии — считаем рассказом всё
