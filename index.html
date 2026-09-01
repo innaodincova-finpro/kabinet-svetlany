@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Кабинет репетитора: расписание, ученики, методика, материалы и оплата">
+<!-- Кабинет работает сам по себе: ничего не скачивает и никуда не отправляет.
+     Ниже это записано правилом для браузера — он сам пресечёт любую попытку
+     обратиться наружу. Разрешены только окно видеозвонка и переход на доску. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; manifest-src 'self'; frame-src https://meet.jit.si https://excalidraw.com; form-action 'none'; base-uri 'none'">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#28425C">
 <link rel="manifest" href="manifest.webmanifest">
@@ -611,6 +615,49 @@ dialog::backdrop{ background:rgba(16,26,36,.44) }
 @media (prefers-reduced-motion: no-preference){
   .ring-v{ animation:ring-in .9s var(--ease) both }
   @keyframes ring-in{ from{ stroke-dashoffset:var(--c) } }
+}
+
+/* Таблица на узком экране: строки становятся карточками с подписями */
+@media (max-width:700px){
+  .tablewrap{ overflow-x:visible }
+  table{ min-width:0 }
+  thead{ display:none }
+  tbody tr{
+    display:block; padding:12px 2px 14px; border-bottom:1px solid var(--line);
+  }
+  tbody tr:last-child{ border-bottom:0 }
+  tbody td{
+    display:grid; grid-template-columns:minmax(92px,42%) 1fr; gap:12px; align-items:baseline;
+    padding:4px 0; border:0; text-align:left;
+  }
+  tbody td.r{ text-align:left }
+  tbody td::before{
+    content:attr(data-l); color:var(--muted); font-size:11px; letter-spacing:.06em;
+    text-transform:uppercase; font-weight:600;
+  }
+  tbody td:first-child{ display:block; margin-bottom:6px }
+  tbody td:first-child::before{ display:none }
+  tbody td:empty{ display:none }
+  tbody td .row{ justify-content:flex-start }
+}
+
+/* Подсказки для новичка */
+.tour-ring{
+  position:fixed; z-index:80; border-radius:12px; pointer-events:none;
+  box-shadow:0 0 0 9999px rgba(12,22,32,.55), 0 0 0 2px var(--terra) inset;
+  transition:all .25s var(--ease);
+}
+.tour-tip{
+  position:fixed; z-index:81; width:min(340px, calc(100vw - 24px));
+  background:var(--surface); color:var(--ink); border:1px solid var(--line);
+  border-radius:14px; padding:16px 18px; box-shadow:var(--sh-lift);
+}
+.tour-tip h3{ font-family:var(--display); font-weight:600 }
+@media (prefers-reduced-motion: no-preference){
+  .tour-tip{ animation:dlg-in .26s var(--ease) both }
+}
+@media (max-width:700px){
+  .tour-tip{ left:50% !important; top:auto !important; bottom:16px; transform:translateX(-50%) !important }
 }
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{ animation-duration:.001ms !important; transition-duration:.001ms !important }
@@ -2513,6 +2560,8 @@ function viewSchedule() {
 
   return el('div', {},
     head('Расписание', sub,
+      el('button', {class:'btn btn-sm', title:'Выгрузить занятия в календарь телефона или компьютера',
+        onclick: exportCalendar}, 'В календарь'),
       el('button', {class:'btn btn-primary btn-sm', onclick:() => newLesson(iso(anchor))}, '+ Занятие')),
     el('div', {class:'row', style:'justify-content:space-between; margin-bottom:16px'}, modes, jump),
     body,
@@ -3297,6 +3346,8 @@ function viewMoney() {
         if (!rows.length) return toast('Выгружать пока нечего — сначала заведите учеников');
         saveExcel();
       }}, 'Отчёт в Excel'),
+      el('button', {class:'btn btn-sm', title:'Готовый текст для родителей: сколько занятий и сколько к оплате',
+        onclick:() => invoiceDialog(ui.moneyMonth)}, 'Счёт за месяц'),
       el('button', {class:'btn btn-primary btn-sm', onclick:() => saveGenerated(
         `Посещения и оплата — ${monthName}`, 'docx', reportDoc(),
         {ext:'txt', data: toCsv(summaryRows()), note:'Word здесь запрещён — сохранила данные текстом'})}, 'Отчёт в Word')),
@@ -3710,6 +3761,14 @@ function viewHelp() {
             'Что важно знать: комната живёт, пока в ней кто-то есть. Нарисованное на прошлом занятии само по себе не сохранится — если нужно оставить, сохраните картинкой прямо на доске (значок сохранения в левом верхнем углу) и приложите к материалам. Сама ссылка постоянная: отправили ученику один раз, она работает весь год.'),
           el('div', {class:'meta', style:'font-size:12.5px'},
             'Хотите другой сервис — впишите его адрес сюда, кабинет просто откроет ссылку. У whiteboard.fi, например, бесплатная часть есть, но многие возможности отданы в платный Premium, поэтому кабинет по умолчанию её не предлагает.'),
+          el('div', {class:'row', style:'margin:10px 0 14px'},
+            el('button', {class:'btn btn-sm', onclick:() => startTour(true)}, 'Показать подсказки для новичка'),
+            el('span', {class:'meta', style:'font-size:12.5px'},
+              'Пять коротких шагов: имя, ученик, занятие, работа в день занятия')),
+          el('div', {class:'meta', style:'font-size:13px'},
+            'В «Расписании» есть кнопка «В календарь»: занятия выгружаются файлом и открываются в календаре телефона или компьютера — со временем, темой и ссылками на видео и доску. Это снимок на выбранный период: поменяли расписание — выгрузите заново.'),
+          el('div', {class:'meta', style:'font-size:13px'},
+            'В «Посещениях и оплате» есть кнопка «Счёт за месяц»: кабинет соберёт по каждому ученику, сколько занятий состоялось, сколько начислено, сколько оплачено и сколько осталось, и подготовит готовый текст для родителей. Отправляете вы сами — кабинет ничего никуда не шлёт.'),
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:14px 0 8px', text:'Как диктовать голосом'}),
           el('div', {class:'meta', style:'font-size:13px'},
             'Способ, который работает всегда: поставьте курсор в поле и включите диктовку самого устройства. На Windows — Win+H, на телефоне — значок микрофона на клавиатуре.'),
@@ -5088,6 +5147,242 @@ async function openMeetSmall(ownerType, ownerId) {
   else toast('Браузер не дал открыть окно — разрешите всплывающие окна для этой страницы');
 }
 
+/* ═══════════ ПОДСКАЗКИ ПРИ ПЕРВОМ ВХОДЕ ═══════════
+   Новый репетитор открывает пустой кабинет и не знает, с чего начать.
+   Пять коротких подсказок показывают порядок: имя — ученик — занятие —
+   отметка — копия данных. Показываются один раз; вернуть их можно
+   кнопкой в «Помощи». */
+const TOUR_KEY = 'tochka-tour-v1';
+
+const TOUR = [
+  { nav: null, title: 'Добро пожаловать',
+    text: 'Это кабинет репетитора: расписание, ученики, деньги и отчёты в одном месте. Покажу за минуту, с чего начать. Всё можно закрыть и вернуться к подсказкам позже — они в разделе «Помощь».' },
+  { nav: 'Помощь', title: 'Шаг первый — впишите своё имя',
+    text: 'В разделе «Помощь» есть блок «Настройки и данные»: имя подставляется в отчёты родителям, там же выбирается валюта и рабочие часы. И сразу нажмите «Настроить автосохранение» — кабинет будет сам сохранять копию ваших данных.' },
+  { nav: 'Ученики', title: 'Шаг второй — заведите ученика',
+    text: 'Кнопка «+ Ученик»: имя, класс, формат занятий, длительность и ставка. Телефон и имя родителя пригодятся, чтобы отправлять ссылки и счета. Занимаетесь с группой — сначала создайте группу, потом отметьте, кто в неё входит.' },
+  { nav: 'Расписание', title: 'Шаг третий — поставьте занятие',
+    text: 'Кнопка «+ Занятие»: ученик, дата, время. Кабинет предупредит, если время занято. А чтобы не ставить занятия по одному, откройте карточку ученика и задайте постоянные дни — расписание расставится на недели вперёд.' },
+  { nav: 'Сегодня', title: 'Шаг четвёртый — ведите занятие отсюда',
+    text: 'Экран «Сегодня» — ваш рабочий стол: отметки о посещении, проверка домашней работы, кнопки видео и доски. Деньги начисляются сами, когда вы отмечаете занятие. А если хотите сперва посмотреть на всё с данными — в «Помощи» есть «Загрузить пример».' }
+];
+
+let tourAt = -1;
+
+function tourStop() {
+  document.querySelectorAll('.tour-ring, .tour-tip').forEach(n => n.remove());
+  tourAt = -1;
+  try { localStorage.setItem(TOUR_KEY, 'done'); } catch (e) {}
+}
+
+function tourShow(i) {
+  document.querySelectorAll('.tour-ring, .tour-tip').forEach(n => n.remove());
+  if (i < 0 || i >= TOUR.length) { tourStop(); return; }
+  tourAt = i;
+  const step = TOUR[i];
+  const target = step.nav
+    ? [...document.querySelectorAll('.nav button')].find(b => b.textContent.includes(step.nav))
+    : null;
+  const seen = target && target.offsetParent !== null;
+  const ring = el('div', {class:'tour-ring'});
+  if (seen) {
+    const r = target.getBoundingClientRect();
+    ring.style.cssText = `top:${r.top - 4}px; left:${r.left - 4}px; width:${r.width + 8}px; height:${r.height + 8}px`;
+  } else {
+    ring.style.cssText = 'top:50%; left:50%; width:0; height:0';
+  }
+  document.body.append(ring);
+
+  const tip = el('div', {class:'tour-tip'},
+    el('div', {class:'meta', style:'font-size:11px; letter-spacing:.08em; text-transform:uppercase',
+      text: `Подсказка ${i + 1} из ${TOUR.length}`}),
+    el('h3', {style:'margin:6px 0 8px; font-size:17px', text: step.title}),
+    el('div', {style:'font-size:14px; line-height:1.55', text: step.text}),
+    el('div', {class:'row', style:'margin-top:14px; justify-content:space-between'},
+      el('button', {class:'btn btn-ghost btn-sm', onclick: tourStop}, 'Закрыть подсказки'),
+      el('div', {class:'row', style:'gap:8px'},
+        i > 0 ? el('button', {class:'btn btn-sm', onclick:() => tourShow(i - 1)}, 'Назад') : null,
+        el('button', {class:'btn btn-primary btn-sm',
+          onclick:() => i + 1 < TOUR.length ? tourShow(i + 1) : tourStop()},
+          i + 1 < TOUR.length ? 'Дальше' : 'Понятно'))));
+  document.body.append(tip);
+
+  /* Пузырёк встаёт рядом с подсвеченным пунктом, а если пункт не виден
+     (узкий экран, свёрнутое меню) — по центру. */
+  const tr = tip.getBoundingClientRect();
+  if (seen) {
+    const r = target.getBoundingClientRect();
+    const left = Math.min(r.right + 16, window.innerWidth - tr.width - 12);
+    const top = Math.min(Math.max(12, r.top - 10), window.innerHeight - tr.height - 12);
+    tip.style.cssText += `; top:${top}px; left:${Math.max(12, left)}px`;
+  } else {
+    tip.style.cssText += `; top:50%; left:50%; transform:translate(-50%,-50%)`;
+  }
+}
+
+function startTour(force) {
+  if (!force) {
+    let done = null;
+    try { done = localStorage.getItem(TOUR_KEY); } catch (e) {}
+    if (done) return;
+    const empty = !S.students.length && !S.groups.length && !S.lessons.length;
+    if (!empty) return;
+  }
+  tourShow(0);
+}
+
+/* ═══════════ РАСПИСАНИЕ В КАЛЕНДАРЬ ═══════════
+   Файл календаря — обычный текст особого вида: его понимают календари
+   на телефоне и на компьютере. Занятия ложатся туда как встречи,
+   со временем, темой и ссылками на видео и доску. */
+function icsText(days) {
+  const today = iso(new Date());
+  const last = iso(addDays(new Date(), days));
+  const fold = s => String(s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/([,;])/g, '\\$1');
+  const stamp = d => d.replace(/-/g, '');
+  const hhmm = m => pad2(Math.floor(m / 60)) + pad2(m % 60) + '00';
+  const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Точка решения//Кабинет репетитора//RU', 'CALSCALE:GREGORIAN'];
+  const list = S.lessons
+    .filter(l => l.date >= today && l.date <= last)
+    .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1);
+  const now = new Date();
+  const nowStamp = `${now.getUTCFullYear()}${pad2(now.getUTCMonth()+1)}${pad2(now.getUTCDate())}T${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}00Z`;
+  for (const l of list) {
+    const o = owner(l);
+    const t = l.topicId ? (topic(l.topicId) || {}).title : '';
+    const meet = (o && o.format === 'онлайн') ? meetUrl(l.ownerType, l.ownerId) : '';
+    const board = (o && o.format === 'онлайн') ? boardUrl(l.ownerType, l.ownerId) : '';
+    const descr = [t ? 'Тема: ' + t : '', l.plan ? 'План: ' + l.plan : '',
+      meet ? 'Видео: ' + meet : '', board ? 'Доска: ' + board : ''].filter(Boolean).join('\n');
+    out.push('BEGIN:VEVENT',
+      `UID:${l.id}@tochka-resheniya`,
+      `DTSTAMP:${nowStamp}`,
+      `DTSTART:${stamp(l.date)}T${hhmm(toMin(l.time))}`,
+      `DTEND:${stamp(l.date)}T${hhmm(lessonEnd(l))}`,
+      `SUMMARY:${fold(ownerName(l) + (t ? ' · ' + t : ''))}`);
+    if (descr) out.push(`DESCRIPTION:${fold(descr)}`);
+    if (meet) out.push(`LOCATION:${fold(meet)}`);
+    out.push('END:VEVENT');
+  }
+  out.push('END:VCALENDAR');
+  return { text: out.join('\r\n'), count: list.length };
+}
+
+function exportCalendar() {
+  const dlg = $('#formDlg');
+  const sel = el('select', {style:'max-width:220px'},
+    el('option', {value:'30'}, 'ближайший месяц'),
+    el('option', {value:'90', selected:true}, 'ближайшие три месяца'),
+    el('option', {value:'180'}, 'ближайшие полгода'),
+    el('option', {value:'365'}, 'ближайший год'));
+  const info = el('div', {class:'meta', style:'margin-top:8px'});
+  const refresh = () => { info.textContent = `Занятий попадёт в календарь: ${icsText(+sel.value).count}`; };
+  sel.addEventListener('change', refresh); refresh();
+  dlg.textContent = '';
+  dlg.append(
+    el('div', {class:'dlg-h'},
+      el('div', {}, el('h2', {text:'Расписание в календарь'}),
+        el('div', {class:'meta'}, 'Занятия станут встречами в вашем календаре')),
+      el('button', {class:'btn btn-ghost btn-sm', onclick:() => dlg.close()}, '✕')),
+    el('div', {class:'dlg-b'},
+      el('label', {class:'field'}, el('span',{},'Какой период выгрузить'), sel),
+      info,
+      el('div', {class:'meta', style:'margin-top:12px; font-size:13px'},
+        'Кабинет сохранит файл. Откройте его на телефоне или на компьютере — календарь предложит добавить занятия. Это разовый снимок: если расписание поменяется, выгрузите заново.'),
+      el('div', {class:'meta', style:'font-size:13px'},
+        'В каждой встрече будет имя ученика, тема, план и ссылки на видео и доску — их видно прямо в календаре.')),
+    el('div', {class:'dlg-f'},
+      el('button', {class:'btn', onclick:() => dlg.close()}, 'Закрыть'),
+      el('button', {class:'btn btn-primary', onclick: async () => {
+        const {text, count} = icsText(+sel.value);
+        if (!count) { toast('В этом периоде занятий нет'); return; }
+        const ok = await saveGenerated('Занятия — Точка решения', 'ics', text,
+          {ext:'txt', data: text, note:'Календарный файл здесь запрещён — сохранила текстом'});
+        if (ok) dlg.close();
+      }}, 'Сохранить файл')));
+  dlg.showModal();
+}
+
+/* ═══════════ СЧЁТ ЗА МЕСЯЦ ═══════════
+   Готовый текст для родителей: сколько занятий прошло, сколько начислено,
+   сколько уже оплачено и сколько осталось. Кабинет ничего не отправляет —
+   текст копируют и отправляют сами. */
+function monthInvoice(month) {
+  const [yy, mm] = month.split('-').map(Number);
+  const from = `${yy}-${pad2(mm)}-01`;
+  const to = `${yy}-${pad2(mm)}-${pad2(new Date(yy, mm, 0).getDate())}`;
+  const title = `${MONN[mm-1]} ${yy}`;
+  return liveStudents().map(st => {
+    const inMonth = lessonsOfStudent(st.id).filter(l => l.date >= from && l.date <= to);
+    const marked = inMonth.filter(l => markOf(l, st.id));
+    const was = marked.filter(l => markOf(l, st.id).s === 'был').length;
+    const missed = marked.filter(l => markOf(l, st.id).s === 'пропуск').length;
+    const charged = chargedOf(st.id, from, to);
+    const paid = paidOf(st.id, from, to);
+    const bal = balanceOf(st.id);
+    const due = bal < 0 ? -bal : 0;
+    const cur = S.currency;
+    const num = v => (Number(v) || 0).toLocaleString('ru-RU');
+    const who = st.parent ? st.parent : 'Здравствуйте';
+    const lines = [
+      `${who}! Занятия ${st.name} за ${title}:`,
+      `состоялось ${was} ${plural(was, 'занятие', 'занятия', 'занятий')}` + (missed ? `, пропусков ${missed}` : ''),
+      `начислено ${num(charged)} ${cur}, оплачено ${num(paid)} ${cur}`,
+      due ? `К оплате: ${num(due)} ${cur}.` : 'Задолженности нет, спасибо.',
+      `С уважением, ${S.tutor}`
+    ];
+    return { st, was, missed, charged, paid, due, text: lines.join('\n') };
+  }).filter(r => r.was || r.charged || r.due);
+}
+
+function invoiceDialog(month) {
+  const rows = monthInvoice(month);
+  const [yy, mm] = month.split('-').map(Number);
+  const title = `${MONN[mm-1]} ${yy}`;
+  const dlg = $('#formDlg');
+  const num = v => (Number(v) || 0).toLocaleString('ru-RU');
+  const totalDue = rows.reduce((s, r) => s + r.due, 0);
+  const all = rows.map(r => r.text).join('\n\n———\n\n');
+  const copy = (text, okMsg) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => toast(okMsg), () => showLinkDialog(text));
+    } else showLinkDialog(text);
+  };
+  dlg.textContent = '';
+  dlg.append(
+    el('div', {class:'dlg-h'},
+      el('div', {}, el('h2', {text:'Счёт за месяц'}),
+        el('div', {class:'meta', text: `${title} · всего к оплате ${num(totalDue)} ${S.currency}`})),
+      el('button', {class:'btn btn-ghost btn-sm', onclick:() => dlg.close()}, '✕')),
+    el('div', {class:'dlg-b'},
+      rows.length ? el('div', {class:'list'},
+        ...rows.map(r => {
+          const phone = String(r.st.phone || '').replace(/\D/g, '');
+          return el('div', {class:'list-row', style:'grid-template-columns:1fr auto; gap:12px'},
+            el('div', {},
+              el('div', {class:'name', text: r.st.name + (r.st.parent ? ' · ' + r.st.parent : '')}),
+              el('div', {class:'meta', style:'font-size:12.5px',
+                text: `состоялось ${r.was}${r.missed ? ', пропусков ' + r.missed : ''} · начислено ${num(r.charged)} ${S.currency} · оплачено ${num(r.paid)} ${S.currency}`}),
+              el('div', {style:'margin-top:2px', html: r.due
+                ? `<b>К оплате ${num(r.due)} ${S.currency}</b>`
+                : '<span class="chip chip-ok">оплачено полностью</span>'})),
+            el('div', {class:'row', style:'justify-content:flex-end'},
+              el('button', {class:'btn btn-sm', onclick:() => copy(r.text, 'Текст для родителя скопирован')}, 'Скопировать'),
+              phone ? el('a', {class:'btn btn-sm', target:'_blank', rel:'noopener',
+                href:`https://wa.me/${phone}?text=${encodeURIComponent(r.text)}`}, 'WhatsApp') : null));
+        }))
+        : el('div', {class:'empty', text:'За этот месяц начислений нет.'}),
+      el('div', {class:'meta', style:'margin-top:14px; font-size:13px'},
+        'Кабинет ничего не отправляет сам: он готовит текст, а вы решаете, кому и когда его послать. Суммы берутся из отметок посещаемости и записей об оплате.')),
+    el('div', {class:'dlg-f'},
+      el('button', {class:'btn', onclick:() => dlg.close()}, 'Закрыть'),
+      rows.length ? el('button', {class:'btn', onclick:() => saveGenerated(
+        `Счёт за месяц — ${title}`, 'txt', all)}, 'Сохранить файлом') : null,
+      rows.length ? el('button', {class:'btn btn-primary',
+        onclick:() => copy(all, 'Все счета скопированы')}, 'Скопировать всё') : null));
+  dlg.showModal();
+}
+
 /* Отправить ссылку ученику: мессенджер, почта или просто копирование */
 function sendMeetDialog(ownerType, ownerId) {
   const url = meetUrl(ownerType, ownerId);
@@ -5438,6 +5733,19 @@ function renderSmooth() {
   catch (e) { render(); after(); }
 }
 
+/* На телефоне таблица не помещается по ширине. Чтобы не возить экран вбок,
+   каждой ячейке подписывается её столбец, и строка показывается карточкой:
+   «Начислено — 4 800 ₽» вместо безымянной колонки цифр. */
+function labelCells(root) {
+  root.querySelectorAll('table').forEach(t => {
+    const head = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    if (!head.length) return;
+    t.querySelectorAll('tbody tr').forEach(tr => {
+      [...tr.children].forEach((td, i) => { if (head[i]) td.setAttribute('data-l', head[i]); });
+    });
+  });
+}
+
 function render() {
   renderNav();
   const v = $('#view');
@@ -5450,6 +5758,7 @@ function render() {
   v.textContent = '';
   try { v.append(VIEWS[cur]()); }
   catch (e) { v.append(el('div', {class:'empty', text:'Не удалось показать раздел: ' + e.message})); }
+  labelCells(v);
   if (keepId) {
     const again = document.getElementById(keepId);
     if (again) {
@@ -5720,6 +6029,7 @@ lastSnap = snapshot();
 restorePlace();
 render();
 liveTilt();
+setTimeout(() => startTour(false), 700);
 persist(true);
 shadowSave();
 refreshBar();
