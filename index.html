@@ -322,6 +322,13 @@ label.field>span{font-size:11px; letter-spacing:.07em; text-transform:uppercase;
 .wl b{display:block; font-weight:600; color:var(--ink)}
 .wl span{color:var(--muted); font-family:var(--mono); font-size:10.5px}
 .wl.busy-mark{background:var(--surface-2); border-left-color:var(--muted); color:var(--muted)}
+/* Метка «№3» — какое по счёту это занятие у ученика в этом месяце */
+.lno{
+  display:inline-block; margin-left:6px; padding:0 6px; border-radius:999px; vertical-align:1px;
+  background:var(--accent); color:#fff; font-style:normal; font-weight:700; font-size:10.5px;
+  line-height:16px; font-family:inherit; white-space:nowrap;
+}
+.wl-done .lno, .is-past .lno{opacity:.85}
 
 /* ============ ДИАЛОГИ ============ */
 dialog{
@@ -1163,6 +1170,37 @@ const unmarkedLessons = () => S.lessons.filter(needsMark).sort((a, b) => (a.date
 
 /* Деньги ученика */
 const lessonsOfStudent = sid => S.lessons.filter(l => participants(l).some(st => st.id === sid));
+
+/* ── Какое по счёту занятие в месяце ──
+   Ученику и родителям важно видеть: «это третье занятие в сентябре».
+   Считаем занятия того же ученика (или группы) в том же месяце по порядку
+   дат и времени. Пропуски и переносы не считаются — занятия не было.
+   С первого числа каждого месяца счёт начинается заново.
+   Если указан ученик — считаем по нему (для группового занятия это его
+   личный счёт), иначе — по тому, на кого поставлено занятие. */
+const MONP = ['январе','феврале','марте','апреле','мае','июне','июле','августе','сентябре','октябре','ноябре','декабре'];
+function lessonCounts(l, sid) {
+  if (!l || !l.date) return null;
+  const mon = l.date.slice(0, 7);
+  const skipped = x => sid
+    ? !!(markOf(x, sid) && markOf(x, sid).s !== 'был')
+    : (isMarked(x) && !Object.values(x.marks).some(m => m && m.s === 'был'));
+  const list = (sid ? lessonsOfStudent(sid) : S.lessons.filter(x => x.ownerType === l.ownerType && x.ownerId === l.ownerId))
+    .filter(x => x.date.slice(0, 7) === mon && !skipped(x))
+    .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1);
+  const i = list.findIndex(x => x.id === l.id);
+  return i < 0 ? null : {n: i + 1, total: list.length};
+}
+/* «3-е занятие в сентябре» */
+function lessonNoText(l, sid) {
+  const c = lessonCounts(l, sid);
+  return c ? `${c.n}-е занятие в ${MONP[+l.date.slice(5, 7) - 1]}` : '';
+}
+/* Маленькая метка «№3» для тесных клеток недели и месяца */
+function lessonNoBadge(l, sid) {
+  const c = lessonCounts(l, sid);
+  return c ? el('i', {class:'lno', title: lessonNoText(l, sid), text: '№' + c.n}) : null;
+}
 function chargedOf(sid, fromISO, toISO) {
   return lessonsOfStudent(sid).reduce((sum, l) => {
     if (fromISO && l.date < fromISO) return sum;
@@ -2048,7 +2086,8 @@ function viewToday() {
           el('div', {class:'tm', text: `${l.time}–${toHM(lessonEnd(l))} · ${l.duration} мин`}),
           running ? el('span', {class:'chip chip-now', text:`идёт · осталось ${lessonEnd(l) - nowMin} мин`}) : null,
           past && isMarked(l) ? statusChip(l) : null,
-          late ? el('span', {class:'chip chip-warn', text:'отметьте'}) : null),
+          late ? el('span', {class:'chip chip-warn', text:'отметьте'}) : null,
+          lessonNoText(l) ? el('span', {class:'chip chip-mute', text: lessonNoText(l)}) : null),
         el('div', {class:'who', text: ownerName(l) + (l.ownerType === 'group' ? ' · группа' : '')}),
         el('div', {class:'what', text: t ? t.title : 'Тема не назначена'}))));
     cursor = lessonEnd(l);
@@ -2089,7 +2128,7 @@ function viewToday() {
       el('div', {class:'num', style:'font-size:12.5px;color:var(--muted); min-width:118px', text: fmtDate(l.date) + ' · ' + l.time}),
       el('div', {},
         el('div', {class:'name', text: ownerName(l) + (l.ownerType === 'group' ? ' · группа' : '')}),
-        el('div', {class:'meta', style:'font-size:12.5px', text: l.topicId ? (topic(l.topicId)?.title || '') : 'тема не назначена'})),
+        el('div', {class:'meta', style:'font-size:12.5px', text: (l.topicId ? (topic(l.topicId)?.title || '') : 'тема не назначена') + (lessonNoText(l) ? ' · ' + lessonNoText(l) : '')})),
       el('div', {class:'row'},
         el('button', {class:'btn btn-sm', title:'Занятие состоялось, все были', onclick:() => quickMark(l, 'был')}, 'Проведено'),
         el('button', {class:'btn btn-sm', onclick:() => quickMark(l, 'пропуск')}, 'Пропуск'),
@@ -2551,7 +2590,8 @@ function viewSchedule() {
         const t = l.topicId ? topic(l.topicId) : null;
         return el('div', {class:'list-row', style:'grid-template-columns:auto 1.6fr 1fr auto auto'},
           el('div', {class:'num', style:'color:var(--ink-2)', text: `${l.time}–${toHM(lessonEnd(l))}`}),
-          el('div', {}, el('div',{class:'name',text:ownerName(l)}), el('div',{class:'meta', text: t ? t.title : 'Тема не назначена'})),
+          el('div', {}, el('div',{class:'name',text:ownerName(l)}),
+            el('div',{class:'meta', text: (t ? t.title : 'Тема не назначена') + (lessonNoText(l) ? ' · ' + lessonNoText(l) : '')})),
           el('div', {class:'meta', text: (owner(l)||{}).format || ''}),
           statusChip(l, null),
           el('button', {class:'btn btn-ghost btn-sm', onclick:() => openLesson(l.id)}, 'Изменить'));
@@ -2582,7 +2622,7 @@ function viewSchedule() {
         ...ls.slice(0,3).map(l => el('button', {
             class:'wl' + (needsMark(l) ? ' wl-late' : '') + (isMarked(l) ? ' wl-done' : ''),
             style:'margin-bottom:2px', onclick:() => openLesson(l.id)},
-          el('b', {text: ownerName(l)}), el('span', {text: l.time}))),
+          el('b', {text: ownerName(l)}, lessonNoBadge(l)), el('span', {text: l.time}))),
         ls.length > 3 ? el('button', {class:'meta', style:'font-size:11px;padding:2px 4px;background:none;border:0;cursor:pointer;text-align:left',
           onclick:() => { ui.schedMode = 'day'; setAnchor(d); }, text:`ещё ${ls.length-3}`}) : null));
     }
@@ -2653,7 +2693,7 @@ function weekGrid(monday, onPick, exceptId) {
           class:'wl' + (onPick ? ' busy-mark' : '') + (late ? ' wl-late' : '') + (!onPick && isMarked(l) ? ' wl-done' : ''),
           style: onPick ? 'cursor:not-allowed' : '',
           onclick: onPick ? (e => { e.preventDefault(); toast('Это время занято: ' + ownerName(l)); }) : (() => openLesson(l.id))
-        }, el('b', {text: ownerName(l)}),
+        }, el('b', {text: ownerName(l)}, onPick ? null : lessonNoBadge(l)),
            el('span', {text: `${l.time} · ${l.duration}м${late ? ' · отметьте' : ''}`})));
       }
       if (onPick && !busy) {
@@ -3548,6 +3588,10 @@ function reportBlocks(st, month) {
     B.push({k:'p', t: inMonth.length
       ? 'Занятия в этом месяце были, но пока не отмечены — как только отметим, они появятся в отчёте.'
       : 'В этом месяце занятий не было.'});
+    /* Комментарий репетитора нужен и без занятий — иначе написанное
+       просто не попадает в отчёт. */
+    const note0 = (S.reportNotes || {})[st.id + ':' + month];
+    if (note0) { B.push({k:'b', t:'Комментарий репетитора'}); B.push({k:'p', t: note0}); }
     return B;
   }
 
@@ -3560,7 +3604,8 @@ function reportBlocks(st, month) {
       const hw = l.hwCheck && l.hwCheck.s
         ? `Домашняя работа: ${HW_LABEL[l.hwCheck.s]}${l.hwCheck.note ? ' — ' + l.hwCheck.note : ''}. `
         : '';
-      return [fmtDate(l.date) + (m.s !== 'был' ? ` (${MARK_LABEL[m.s] || m.s}${m.s === 'пропуск' && m.reason ? ': ' + m.reason : ''})` : ''),
+      const c = m.s === 'был' ? lessonCounts(l, st.id) : null;
+      return [fmtDate(l.date) + (c ? ` · ${c.n}-е занятие` : '') + (m.s !== 'был' ? ` (${MARK_LABEL[m.s] || m.s}${m.s === 'пропуск' && m.reason ? ': ' + m.reason : ''})` : ''),
         t ? t.title : 'тема не указана', (hw + resultFor(l, st.id)).trim() || '—', homeworkFor(l, st.id) || '—'];
     })]});
 
@@ -4341,7 +4386,8 @@ function openLessonCard(L, isNew) {
     el('div', {class:'dlg-h'},
       el('div', {},
         el('h2', {id:'lessonDlgT', text: isNew ? 'Новое занятие' : 'Карточка занятия'}),
-        el('div', {class:'meta', text: isNew ? 'Одно занятие — одна карточка' : `${fmtDate(draft.date)} · ${draft.time}`})),
+        el('div', {class:'meta', text: isNew ? 'Одно занятие — одна карточка'
+          : `${fmtDate(draft.date)} · ${draft.time}` + (lessonNoText(L) ? ' · ' + lessonNoText(L) : '')})),
       el('button', {class:'btn btn-ghost btn-sm', onclick: closeLesson}, '✕')),
     body,
     el('div', {class:'dlg-f'},
