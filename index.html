@@ -144,7 +144,7 @@ a{color:var(--accent)}
 .rail-actions{display:flex; gap:6px; flex-wrap:wrap}
 #menuBtn{display:none}
 
-main{padding:34px 40px 80px; max-width:1180px; min-width:0}
+main{padding:34px 40px 80px; max-width:1600px; min-width:0}
 .page-h{display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:6px}
 h1{font-family:var(--display); font-weight:600; font-size:31px; letter-spacing:.005em}
 .h-rule{height:2px; width:52px; background:var(--accent); border-radius:2px; margin:12px 0 26px}
@@ -326,13 +326,19 @@ label.field>span{font-size:11px; letter-spacing:.07em; text-transform:uppercase;
 /* ============ ДИАЛОГИ ============ */
 dialog{
   border:0; border-radius:16px; padding:0; background:var(--surface); color:var(--ink);
-  max-width:min(720px,94vw); width:100%; box-shadow:0 24px 64px -20px rgba(0,0,0,.45);
+  max-width:min(1400px,96vw); width:100%; box-shadow:0 24px 64px -20px rgba(0,0,0,.45);
 }
+/* Окно занимает почти весь экран: шапка и нижние кнопки закреплены,
+   прокручивается только середина. Карточку занятия больше не нужно
+   разглядывать в узкую щель. */
+dialog[open]{ display:flex; flex-direction:column; max-height:94vh }
+.dlg-h, .dlg-f{ flex:none }
 dialog::backdrop{background:rgba(20,30,40,.5)}
 .dlg-h{padding:22px 26px 0; display:flex; justify-content:space-between; align-items:flex-start; gap:16px}
 .dlg-h h2{font-family:var(--display); font-weight:600; font-size:21px}
 .dlg-h .meta{margin-top:3px}
-.dlg-b{padding:18px 26px 24px; display:grid; gap:18px; max-height:70vh; overflow:auto}
+.dlg-b{padding:18px 26px 24px; display:grid; gap:18px; align-content:start;
+  max-height:none; overflow:auto; flex:1 1 auto; min-height:0}
 .dlg-f{padding:16px 26px; border-top:1px solid var(--line); display:flex; gap:10px; justify-content:flex-end; background:var(--surface-2); border-radius:0 0 16px 16px}
 .two{display:grid; grid-template-columns:1fr 1fr; gap:14px}
 .three{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px}
@@ -486,6 +492,14 @@ th.r,td.r{text-align:right}
   .dayline .hour::before{left:-48px; width:38px; font-size:11px}
   .now .ln{left:48px}
   .dlg-h,.dlg-b,.dlg-f{padding-left:16px; padding-right:16px}
+  dialog[open]{ width:100vw; max-width:100vw; max-height:100dvh; height:100dvh; border-radius:0; margin:0; inset:0 }
+  .dlg-f{ border-radius:0 }
+}
+@media (max-width:700px){
+  /* Кнопки внизу окна переносятся на вторую строку, а не уезжают за край */
+  .dlg-f{ flex-wrap:wrap; justify-content:flex-end; gap:8px 10px }
+  .dlg-f > span[style*="flex"]{ display:none }
+  .dlg-f .btn{ flex:0 0 auto }
 }
 
 /* ============ ГЛУБИНА И ДВИЖЕНИЕ ============
@@ -601,6 +615,12 @@ dialog::backdrop{ background:rgba(16,26,36,.44) }
   #view.fresh .card, #view.fresh .lesson{ animation:rise .22s ease-out both }
   @keyframes rise{ from{ opacity:0 } }
 }
+
+/* Простые окна — подтверждение, отправка ссылки — остаются узкими:
+   растягивать их на весь экран незачем. Широкими открываются те,
+   где много полей: карточка занятия, ученик, группа, тема, счёт. */
+#askDlg, #planDlg:not(.dlg-view){ max-width:min(560px, 94vw) }
+#lessonDlg, #formDlg{ max-width:min(1400px, 96vw) }
 
 /* Кольцо дня */
 .ring-wrap{display:flex; align-items:center; gap:16px}
@@ -1063,7 +1083,7 @@ const MARK_LABEL = {'был': 'присутствовал', 'пропуск': '�
 
 /* Проверка домашней работы, заданной на прошлом уроке. Хранится в занятии,
    на котором её проверяли: {s: статус, note: что не получилось}. */
-const HW_LABEL = {'сделана': 'сделана', 'частично': 'сделана частично', 'нет': 'не сделана'};
+const HW_LABEL = {'сделана': 'сделана', 'ошибки': 'сделана с ошибками', 'частично': 'сделана частично', 'нет': 'не сделана'};
 
 /* Прошлое занятие того же ученика или группы, на котором что-то задали */
 function prevHomework(l) {
@@ -3091,7 +3111,7 @@ function editMaterial(id) {
     el('div', {class:'two'},
       el('label', {class:'field'}, el('span',{},'Класс'), cls),
       el('label', {class:'field'}, el('span',{},'Ссылка вместо файла'), url)),
-    el('label', {class:'field'}, el('span',{},'Заметка'), note)
+    bigField('Заметка', note)
   ], () => {
     if (!title.value.trim()) return 'Введите название.';
     const f = fileIn.files && fileIn.files[0];
@@ -3512,10 +3532,11 @@ function reportBlocks(st, month) {
     ['Пропущено', missed]];
   if (moved) short.push(['Перенесено', moved]);
   const hwDone = mine.filter(l => l.hwCheck && l.hwCheck.s === 'сделана').length;
+  const hwErr = mine.filter(l => l.hwCheck && l.hwCheck.s === 'ошибки').length;
   const hwPart = mine.filter(l => l.hwCheck && l.hwCheck.s === 'частично').length;
   const hwNo = mine.filter(l => l.hwCheck && l.hwCheck.s === 'нет').length;
-  if (hwDone + hwPart + hwNo) short.push(['Домашняя работа',
-    [hwDone ? `сделана ${hwDone}` : '', hwPart ? `частично ${hwPart}` : '', hwNo ? `не сделана ${hwNo}` : ''].filter(Boolean).join(', ')]);
+  if (hwDone + hwErr + hwPart + hwNo) short.push(['Домашняя работа',
+    [hwDone ? `сделана ${hwDone}` : '', hwErr ? `с ошибками ${hwErr}` : '', hwPart ? `частично ${hwPart}` : '', hwNo ? `не сделана ${hwNo}` : ''].filter(Boolean).join(', ')]);
   short.push(['Учебных часов', hours]);
   if (r && r.topicIds.length) short.push(['Пройдено тем программы', `${passed} из ${r.topicIds.length}`]);
   short.push(['Занятия за месяц', `${num2(charged)} ${S.currency}`]);
@@ -4020,7 +4041,7 @@ function openLessonCard(L, isNew) {
     hwPrevLine.textContent = prev
       ? `Задавали ${fmtDate(prev.date)}: ${prev.homework}`
       : 'На прошлом занятии ничего не задавали — отметить нечего.';
-    ['сделана', 'частично', 'нет'].forEach(v => {
+    ['сделана', 'ошибки', 'частично', 'нет'].forEach(v => {
       const btn = el('button', {type:'button', class:'pill', 'aria-pressed': String(hwCheck.s === v), onclick:() => {
         hwCheck.s = hwCheck.s === v ? null : v;
         renderHw();
@@ -4030,7 +4051,10 @@ function openLessonCard(L, isNew) {
     hwBox.append(
       el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:6px', text:'Домашняя работа с прошлого урока'}),
       hwPrevLine, hwPills);
-    if (hwCheck.s && hwCheck.s !== 'сделана') hwBox.append(el('div', {style:'margin-top:10px'}, bigField('Что не получилось', hwNoteIn)));
+    /* «С ошибками» — всё выполнено, но с ошибками: родителю важно знать, какими.
+       «Частично» — часть заданий не сделана. В обоих случаях нужно пояснение. */
+    if (hwCheck.s && hwCheck.s !== 'сделана') hwBox.append(el('div', {style:'margin-top:10px'},
+      bigField(hwCheck.s === 'ошибки' ? 'Какие ошибки' : 'Что не получилось', hwNoteIn)));
     hwBox.append(el('div', {class:'meta', style:'font-size:12px; margin-top:8px'},
       'Попадёт в отчёт родителям рядом с этим занятием.'));
   }
@@ -4070,10 +4094,11 @@ function openLessonCard(L, isNew) {
         el('label', {class:'row', style:'gap:7px; margin-left:auto'}, chargeCb,
           el('span', {class:'meta', html: 'начислить ' + money(rate)}))));
       if (m.s === 'пропуск') {
-        const reasonIn = el('input', {type:'text', value: m.reason || '',
-          placeholder:'Причина пропуска — по уважительной причине, что случилось (необязательно)',
-          style:'margin:-4px 0 6px', onchange: e => { m.reason = e.target.value.trim(); }});
-        afterBox.append(el('div', {style:'margin-left:132px; margin-bottom:8px'}, reasonIn));
+        const reasonIn = el('textarea', {style:'min-height:44px',
+          placeholder:'Причина пропуска — по уважительной причине, что случилось (необязательно)'});
+        reasonIn.value = m.reason || '';
+        reasonIn.addEventListener('input', () => { m.reason = reasonIn.value.trim(); });
+        afterBox.append(el('div', {style:'margin:-4px 0 8px 132px'}, bigField('Причина пропуска', reasonIn)));
       }
     }
     afterBox.append(sumLine);
@@ -4103,7 +4128,8 @@ function openLessonCard(L, isNew) {
   }
 
   const resIn = el('textarea', {placeholder:'Что получилось, где затык — попадёт в отчёт родителям'}); resIn.value = draft.result || '';
-  const hwIn = el('input', {type:'text', value:draft.homework || '', placeholder:'Домашнее задание'});
+  const hwIn = el('textarea', {style:'min-height:64px', placeholder:'Домашнее задание — учебник, страницы, номера, что выучить'});
+  hwIn.value = draft.homework || '';
 
   /* Личные записи по участникам группы. Поля создаются заново при смене
      ученика или группы, набранное при этом не теряется — оно живёт в perData. */
@@ -4125,12 +4151,13 @@ function openLessonCard(L, isNew) {
       const rTa = el('textarea', {style:'min-height:56px', placeholder:`Что получилось у ${st.name.split(' ')[0]}, где затык`});
       rTa.value = cur.result || '';
       rTa.addEventListener('input', () => { cur.result = rTa.value; });
-      const hTa = el('input', {type:'text', value: cur.homework || '', placeholder:'Своё задание — если отличается от общего'});
+      const hTa = el('textarea', {style:'min-height:48px', placeholder:'Своё задание — если отличается от общего'});
+      hTa.value = cur.homework || '';
       hTa.addEventListener('input', () => { cur.homework = hTa.value; });
       perBox.append(el('div', {style:'padding:10px 0; border-top:1px solid var(--line-soft)'},
         el('div', {class:'name', style:'margin-bottom:6px', text: st.name}),
         bigField('Что получилось', rTa),
-        el('label', {class:'field', style:'margin-top:8px'}, el('span',{},'Домашнее задание'), hTa)));
+        el('div', {style:'margin-top:8px'}, bigField('Домашнее задание', hTa))));
     }
   }
 
@@ -4258,7 +4285,7 @@ function openLessonCard(L, isNew) {
     hwBox,
     tellBox,
     bigField('Результат', resIn),
-    el('label', {class:'field'}, el('span',{},'Домашнее задание на следующий раз'), hwIn),
+    bigField('Домашнее задание на следующий раз', hwIn),
     perBox,
     el('div', {class:'meta'}, 'Отсюда данные сами попадают в «Посещения и оплата», отчёт родителям и историю ученика.')
   );
@@ -4492,6 +4519,48 @@ const SAY = [
 ];
 const capFirst = s => s.replace(/^([«"(]?\s*)(\p{Ll})/u, (m, a, b) => a + b.toUpperCase());
 
+/* Распознавание отдаёт числа словами: «на два, на три, номер двадцать пять».
+   Репетитору нужны цифры. Собираем составные числа («сто двадцать три» → 123),
+   порядковые («пятый класс») не трогаем — это не число, а название. */
+const NUM_WORDS = {
+  'ноль':0,'один':1,'одна':1,'одно':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,'шесть':6,'семь':7,'восемь':8,'девять':9,
+  'десять':10,'одиннадцать':11,'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,'шестнадцать':16,
+  'семнадцать':17,'восемнадцать':18,'девятнадцать':19,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,
+  'шестьдесят':60,'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,'триста':300,'четыреста':400,
+  'пятьсот':500,'шестьсот':600,'семьсот':700,'восемьсот':800,'девятьсот':900
+};
+function wordsToDigits(s) {
+  const words = s.split(/(\s+)/);      // с разделителями, чтобы вернуть текст как был
+  const out = [];
+  let i = 0;
+  while (i < words.length) {
+    const w = words[i];
+    const key = w.toLowerCase().replace(/[.,;:!?]+$/, '');
+    if (!(key in NUM_WORDS)) { out.push(w); i++; continue; }
+    /* Собираем цепочку: «сто двадцать пять» — сотни, потом десятки, потом единицы */
+    let total = 0, last = Infinity, j = i, tail = '';
+    while (j < words.length) {
+      const wj = words[j];
+      if (/^\s+$/.test(wj)) { j++; continue; }
+      const kj = wj.toLowerCase().replace(/[.,;:!?]+$/, '');
+      if (!(kj in NUM_WORDS)) break;
+      const v = NUM_WORDS[kj];
+      if (v >= last) break;              // «два три» — это два числа, не одно
+      total += v; last = v;
+      tail = wj.slice(kj.length);        // знак препинания после числа
+      j++;
+      if (v < 10) break;                 // после единиц число закончено
+    }
+    out.push(String(total) + tail);
+    /* Пробелы между съеденными словами не нужны, а вот пробел перед
+       следующим словом — нужен: «10 минут», а не «10минут». */
+    i = j;
+    if (i < words.length && /^\s+$/.test(words[i])) { out.push(words[i]); i++; }
+    else if (i < words.length && i > 0 && /^\s+$/.test(words[i - 1])) out.push(words[i - 1]);
+  }
+  return out.join('');
+}
+
 function tidySpeech(raw) {
   let s = ' ' + String(raw || '').trim();
   for (const [re, sign] of SAY) s = s.replace(re, sign);
@@ -4503,6 +4572,7 @@ function tidySpeech(raw) {
   if (!s) return '';
   /* Пауза = конец мысли: ставим точку, если фраза не однословная
      и не закончена знаком сама. */
+  s = wordsToDigits(s);
   const words = s.split(/\s+/).length;
   if (words > 1 && !/[.!?:,;—\n]$/.test(s)) s += '.';
   /* Заглавные в начале и после каждой точки */
@@ -4611,7 +4681,8 @@ const MOVE_RE = /(перенес|перенос|сдвинул)/i;
 const CAME_RE = /(пришл|занимал|прошло|позанимал|отработал|был на занятии|была на занятии)/i;
 const RES_RE = /(делал|разобрал|решал|повтор|прошли|получ|ошиб|путает|затык|уверен|тяжел|легко|закрепил|тем[уые]|устал|старал|понял|поняла|не понял|исправ|объясн|considered|потренир|отработ|запомн)/i;
 /* Прошедшее время — самый надёжный признак того, что это про урок */
-const PAST_RE = /(?:^|[^а-яё])[а-яё]{2,}(?:лись|лась|ли|ла|ло|л)(?![а-яё])/i;
+/* «ло» намеренно нет: «правило», «число», «дело» — не глаголы */
+const PAST_RE = /(?:^|[^а-яё])[а-яё]{2,}(?:лись|лась|лось|ли|ла|л)(?![а-яё])/i;
 
 /* Отрезать от фразы часть, начиная со слов о новом задании */
 function splitHomework(s) {
@@ -4631,11 +4702,21 @@ function splitHomework(s) {
   return { before, hw };
 }
 
+/* Поручение — фраза из глаголов в неопределённой форме: «выучить правило»,
+   «распечатать и выполнить». После задания такие фразы относятся к нему. */
+const INF_RE = /(?:^|[^а-яё])[а-яё]{3,}(?:ть|ти|чь)(?![а-яё])/i;
+
 function parseLessonSpeech(text) {
   const out = { result: [], homework: [], mark: null, reason: '', hw: null, hwNote: '', rest: [] };
-  const parts = String(text || '')
+  /* Точка в «стр.», «уч.», «упр.», «т.д.» и между цифрами («4.5») — не конец
+     предложения. Прячем её перед разрезанием и возвращаем после. */
+  const guarded = String(text || '')
+    .replace(/(^|[^а-яёА-ЯЁ])(стр|уч|упр|п|пп|гл|т|д|е|им|ср|см|рис|табл|№)\.(?=\s*(\S|$))/gi,
+      (m, pre, ab, next) => (next && /[А-ЯЁ]/.test(next)) ? m : pre + ab + '\u2024')
+    .replace(/(\d)\.(?=\d)/g, '$1\u2024');
+  const parts = guarded
     .split(/(?:[.!?;\n]+)/)
-    .map(s => s.trim())
+    .map(s => s.replace(/\u2024/g, '.').trim())
     .filter(Boolean);
 
   let lastWas = '';   // куда ушла предыдущая фраза: 'hw' | 'res' | ''
@@ -4643,8 +4724,17 @@ function parseLessonSpeech(text) {
     /* 0. «Домашнее задание — рабочая тетрадь. Страница 18 и 19.»
           Второе предложение само по себе ни о чём не говорит, но идёт
           сразу за заданием — значит относится к нему. */
-    if (lastWas === 'hw' && HW_CONT_RE.test(s) && !HW_DONE_RE.test(s) && s.split(/\s+/).length <= 6) {
+    const contHw = lastWas === 'hw' && !HW_DONE_RE.test(s) && !MISS_RE.test(s) && !MOVE_RE.test(s) && (
+      (HW_CONT_RE.test(s) && s.split(/\s+/).length <= 8) ||          // «Стр. 7 № 8, 9»
+      (INF_RE.test(s) && !PAST_RE.test(s) && !RES_RE.test(s)));      // «Правило выучить»
+    if (contHw) {
       out.homework[out.homework.length - 1] += (out.homework.length ? ', ' : '') + s;
+      continue;
+    }
+    /* Поручение без прошлого задания рядом — всё равно задание: «Выучить таблицу» */
+    if (INF_RE.test(s) && !PAST_RE.test(s) && !RES_RE.test(s) && !HW_DONE_RE.test(s) && !MISS_RE.test(s) && !MOVE_RE.test(s) && !CAME_RE.test(s)) {
+      out.homework.push(s);
+      lastWas = 'hw';
       continue;
     }
 
@@ -4659,7 +4749,8 @@ function parseLessonSpeech(text) {
     if (aboutHw && (!HW_NEW_RE.test(s) || HW_OLD_RE.test(s) || PAST_RE.test(s))) {
       out.hw = /(не сдела|не выполн|ничего не|не открыл|забыл)/i.test(s)
         ? 'нет'
-        : (/(частич|половин|не всё|не все|ошиб|не дореш)/i.test(s) ? 'частично' : 'сделана');
+        : (/(частич|половин|не всё|не все|не дореш|не до конца)/i.test(s) ? 'частично'
+        : (/(ошиб|неправильн|неверн)/i.test(s) ? 'ошибки' : 'сделана'));
       /* «Домашнюю сделала, разобрали проценты» — про домашку только первая
          половина, вторая относится к уроку. Делим по запятым. */
       const bits = s.split(/\s*,\s*/).filter(Boolean);
@@ -4681,9 +4772,10 @@ function parseLessonSpeech(text) {
           задание — делим: «Исправили ошибки, на следующий раз номера 20–25». */
     if (HW_NEW_RE.test(s) && !HW_OLD_RE.test(s)) {
       const cut = splitHomework(s);
-      if (cut.before && (RES_RE.test(cut.before) || PAST_RE.test(cut.before))) out.result.push(cut.before);
-      else if (cut.before) out.rest.push(cut.before);
-      out.homework.push(cut.hw);
+      if (cut.before && (RES_RE.test(cut.before) || PAST_RE.test(cut.before))) { out.result.push(cut.before); out.homework.push(cut.hw); }
+      /* «Правило выучить»: перед глаголом нет рассказа об уроке — это всё задание */
+      else if (cut.before) out.homework.push(s.replace(/^(домашн[а-яё]*\s+задани[а-яё]*|задани[а-яё]*\s+на дом)\s*[:—-]?\s*/i, ''));
+      else out.homework.push(cut.hw);
       lastWas = 'hw';
       continue;
     }
@@ -4827,7 +4919,7 @@ function editStudent(id) {
           'Бесплатно и без регистрации: кабинет создаст ученику постоянную комнату на excalidraw.com')),
       el('div', {class:'meta', style:'font-size:12.5px; margin-top:4px'},
         'Отдельная доска для письма — если та, что внутри видео, не устраивает. Пусто — берётся общая доска из «Помощи», а если и её нет, пишут в видео.')),
-    el('label', {class:'field'}, el('span',{},'Заметка'), note)
+    bigField('Заметка', note)
   ], () => {
     if (!name.value.trim()) return 'Введите имя.';
     if (meetUrlIn.value.trim() && !normalizeMeet(meetUrlIn.value))
