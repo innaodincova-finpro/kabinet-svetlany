@@ -145,6 +145,13 @@ a{color:var(--accent)}
 #menuBtn{display:none}
 
 main{padding:34px 40px 80px; max-width:1600px; min-width:0}
+/* Правая колонка: экран сверху, подпись об авторских правах внизу */
+.content{min-width:0; display:flex; flex-direction:column; min-height:100vh}
+.content > main{flex:1 0 auto}
+.copy{
+  margin:0 40px; padding:18px 0 26px; max-width:1520px;
+  border-top:1px solid var(--line); color:var(--muted); font-size:13px; line-height:1.55;
+}
 .page-h{display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:6px}
 h1{font-family:var(--display); font-weight:600; font-size:31px; letter-spacing:.005em}
 .h-rule{height:2px; width:52px; background:var(--accent); border-radius:2px; margin:12px 0 26px}
@@ -466,6 +473,7 @@ th.r,td.r{text-align:right}
   .nav button .dot{display:none}
   .nav button[aria-current="page"]{background:var(--terra); color:#fff}
   main{padding:24px 18px 60px; max-width:none; min-width:0}
+  .copy{margin:0 18px; max-width:none; font-size:12.5px}
   .today{grid-template-columns:1fr}
   .now{left:0}
   .now::before{left:auto; right:2px; top:-15px}
@@ -495,6 +503,7 @@ th.r,td.r{text-align:right}
   .page-h{align-items:flex-start}
   h1{font-size:26px}
   main{padding:20px 14px 60px}
+  .copy{margin:0 14px}
   .dayline{padding-left:48px}
   .dayline .hour::before{left:-48px; width:38px; font-size:11px}
   .now .ln{left:48px}
@@ -720,7 +729,10 @@ try {
       <button class="btn btn-sm rail-btn" id="themeBtn">Тема</button>
     </div>
   </nav>
-  <main id="view"></main>
+  <div class="content">
+    <main id="view"></main>
+    <footer class="copy">Точка решения. Автор методики и содержания — Одинцова&nbsp;И.В. © 2026. Все права защищены. Копирование, распространение и коммерческое использование материала без письменного согласия автора не допускаются.</footer>
+  </div>
 </div>
 
 <!-- Просмотрщик PDF (pdf.js 3.11.174, Apache-2.0). Встроен целиком: страница
