@@ -4224,7 +4224,8 @@ function openLessonCard(L, isNew) {
     placeholder:'Например: разобрали дроби, путает знаменатели, задала номера 12–15, пришла вовремя'});
   tellIn.value = draft.tell || '';
   const restIn = el('textarea', {style:'min-height:44px', placeholder:'сюда попадёт то, что кабинет не понял'});
-  const restWrap = el('div', {style:'display:none; margin-top:8px'},
+  restIn.value = draft.rest || '';
+  const restWrap = el('div', {style:(draft.rest ? '' : 'display:none; ') + 'margin-top:8px'},
     el('div', {class:'meta', style:'font-size:12px; margin-bottom:4px'}, 'Не разобрано — перенесите руками, куда нужно'),
     restIn);
   /* Итог разбора: куда именно кабинет разложил рассказ. Показываем словами,
@@ -4232,6 +4233,64 @@ function openLessonCard(L, isNew) {
      без этой строки кажется, что текст просто исчез. */
   const tellNote = el('div', {class:'meta', style:'display:none; margin-top:8px; font-size:12.5px; line-height:1.5'});
   let toldOf = null;   /* какой текст уже разложен — чтобы не разложить дважды */
+
+  /* ── Разбор помнит, что вставил ──
+     Правило свода: кабинет ничего не стирает и всё своё умеет убрать.
+     Поэтому каждая вставка разбора записывается сюда, а перед повторным
+     разбором и по кнопке «Вернуть как было» убирается ровно она —
+     набранное руками остаётся на месте. Отметка и проверка домашней
+     возвращаются к прежним, если их после разбора никто не трогал. */
+  let ins = null;
+  const touch = n => n.dispatchEvent(new Event('input', {bubbles:true}));
+  const addTo = (node, text, sep) => {
+    const cur = node.value.trim();
+    node.value = cur ? cur + sep + text : text;
+    touch(node);
+    return {text, sep: cur ? sep : ''};
+  };
+  const takeOut = (value, rec) => {
+    if (!rec || !rec.text) return value;
+    const full = rec.sep + rec.text;
+    let i = value.lastIndexOf(full);
+    if (i >= 0) return (value.slice(0, i) + value.slice(i + full.length)).trim();
+    i = value.lastIndexOf(rec.text);
+    if (i >= 0) return (value.slice(0, i) + value.slice(i + rec.text.length)).replace(/\s{2,}/g, ' ').trim();
+    return value;   /* вставку уже переписали руками — не трогаем */
+  };
+  function undoParse() {
+    if (!ins) return false;
+    resIn.value = takeOut(resIn.value, ins.res); touch(resIn);
+    hwIn.value = takeOut(hwIn.value, ins.hw); touch(hwIn);
+    for (const sid of Object.keys(ins.per || {})) {
+      const cur = perData[sid];
+      if (cur) cur.result = takeOut(cur.result || '', ins.per[sid]);
+    }
+    if (ins.per && Object.keys(ins.per).length) renderPer();
+    if (ins.marks && JSON.stringify(marks) === ins.marks.after) {
+      for (const k of Object.keys(marks)) delete marks[k];
+      Object.assign(marks, JSON.parse(ins.marks.before));
+      renderAfter();
+    }
+    if (ins.hw2 && hwCheck.s === ins.hw2.after) {
+      hwCheck.s = ins.hw2.before;
+    }
+    hwNoteIn.value = takeOut(hwNoteIn.value, ins.hwNote); hwCheck.note = hwNoteIn.value; touch(hwNoteIn);
+    renderHw();
+    restIn.value = ins.restWas || '';
+    restWrap.style.display = restIn.value ? '' : 'none';
+    ins = null;
+    return true;
+  }
+  const undoBtn = el('button', {type:'button', class:'btn btn-sm', style:'display:none',
+    title:'Убрать всё, что вставил разбор. Набранное руками и сам рассказ останутся',
+    onclick:() => {
+      if (!undoParse()) return;
+      toldOf = null;
+      tellNote.style.display = 'none';
+      undoBtn.style.display = 'none';
+      flashField(resIn);
+      toast('Вернула как было: вставки разбора убраны, ваш текст на месте');
+    }}, '↶ Вернуть как было');
 
   const tellBox = el('div', {class:'card', style:'padding:14px; margin:4px 0'},
     bigField('Расскажите про занятие', tellIn,
@@ -4242,37 +4301,22 @@ function openLessonCard(L, isNew) {
         const t = tellIn.value.trim();
         if (!t) { toast('Сначала расскажите или надиктуйте'); return; }
         if (t === toldOf) { toast('Этот рассказ уже разложен — ниже в «Результате» и «Домашнем задании»'); flashField(resIn); return; }
+        /* Повторный разбор: сначала убираем прошлую вставку, потом кладём
+           новую — иначе поля удваиваются. */
+        undoParse();
         const p = parseLessonSpeech(t);
         const went = [];
-        if (p.result.length) {
-          resIn.value = (resIn.value.trim() ? resIn.value.trim() + ' ' : '') + p.result.join('. ') + '.';
-          went.push('в «Результат»');
-        }
-        if (p.homework.length) {
-          hwIn.value = (hwIn.value.trim() ? hwIn.value.trim() + '; ' : '') + p.homework.join('; ');
-          went.push('в «Домашнее задание»');
-        }
-        if (p.mark) {
-          for (const st of participants({...draft, ownerType: ownerSel.value.split(':')[0], ownerId: ownerSel.value.split(':')[1]})) {
-            marks[st.id] = { s: p.mark, ch: p.mark === 'был' };
-            if (p.mark === 'пропуск' && p.reason) marks[st.id].reason = p.reason;
-          }
-          renderAfter();
-          went.push('в отметку — ' + p.mark);
-        }
-        if (p.hw) {
-          hwCheck.s = p.hw;
-          hwCheck.note = p.hwNote || '';
-          hwNoteIn.value = hwCheck.note;
-          renderHw();
-          went.push('в проверку домашней работы');
-        }
+        const rec = {res:null, hw:null, per:{}, marks:null, hw2:null, hwNote:null, restWas: restIn.value};
+
         /* «Марина решила всё, Аня путает знаменатели» — фразы с именем
-           участника уходят в его личную запись, остальное остаётся общим. */
+           участника уходят в его личную запись, остальное остаётся общим.
+           Сначала разносим по именам, потом один раз дописываем общий
+           «Результат»: набранное руками в нём не трогается. */
         const [pot, poid] = ownerSel.value.split(':');
         const people = participants({...draft, ownerType: pot, ownerId: poid});
+        let common = p.result;
         if (pot === 'group' && people.length > 1 && p.result.length) {
-          const left = [];
+          common = [];
           for (const line of p.result) {
             const who = people.find(st => {
               const first = st.name.split(/\s+/)[0];
@@ -4280,27 +4324,53 @@ function openLessonCard(L, isNew) {
             });
             if (who) {
               const cur = perData[who.id] || (perData[who.id] = {result:'', homework:''});
-              cur.result = (cur.result ? cur.result.trim() + ' ' : '') + line + '.';
+              const was = (cur.result || '').trim();
+              cur.result = (was ? was + ' ' : '') + line + '.';
+              rec.per[who.id] = {text: line + '.', sep: was ? ' ' : ''};
               went.push('в запись «' + who.name + '»');
-            } else left.push(line);
+            } else common.push(line);
           }
-          if (left.length !== p.result.length) {
-            resIn.value = left.length
-              ? (left.join('. ') + '.')
-              : '';
-            renderPer();
+          if (Object.keys(rec.per).length) renderPer();
+        }
+        if (common.length) {
+          rec.res = addTo(resIn, common.join('. ') + '.', ' ');
+          went.push('в «Результат»');
+        }
+        if (p.homework.length) {
+          rec.hw = addTo(hwIn, p.homework.join('; '), '; ');
+          went.push('в «Домашнее задание»');
+        }
+        if (p.mark) {
+          const before = JSON.stringify(marks);
+          for (const st of people) {
+            marks[st.id] = { s: p.mark, ch: p.mark === 'был' };
+            if (p.mark === 'пропуск' && p.reason) marks[st.id].reason = p.reason;
           }
+          rec.marks = {before, after: JSON.stringify(marks)};
+          renderAfter();
+          went.push('в отметку — ' + p.mark);
+        }
+        if (p.hw) {
+          rec.hw2 = {before: hwCheck.s, after: p.hw};
+          hwCheck.s = p.hw;
+          /* Пояснение, набранное руками, остаётся — разбор только дописывает */
+          if (p.hwNote) { rec.hwNote = addTo(hwNoteIn, p.hwNote, ' '); hwCheck.note = hwNoteIn.value; }
+          renderHw();
+          went.push('в проверку домашней работы');
         }
         restIn.value = p.rest.join('. ');
         restWrap.style.display = p.rest.length ? '' : 'none';
+        ins = rec;
+        undoBtn.style.display = '';
         toldOf = t;
         tellNote.style.display = '';
         tellNote.textContent = went.length
-          ? 'Разложено ' + went.join(', ') + '. Рассказ остался здесь — он тоже сохранится в карточке.'
+          ? 'Разложено ' + went.join(', ') + '. Рассказ остался здесь — он тоже сохранится в карточке. Не так — «Вернуть как было».'
           : 'Кабинет не понял, куда это отнести. Текст остался на месте и сохранится вместе с карточкой — перенесите нужное руками.';
         if (went.length) { flashField(resIn); toast('Разложил по полям — проверьте ниже'); }
         else toast('Не понял, куда отнести — текст остался на месте');
       }}, 'Разложить по полям'),
+      undoBtn,
       el('button', {type:'button', class:'btn btn-sm', title:'Если кабинет перепутал: содержимое «Результата» и «Домашнего задания» поменяется местами',
         onclick:() => {
           const a = resIn.value.trim(), b = hwIn.value.trim();
@@ -4357,14 +4427,14 @@ function openLessonCard(L, isNew) {
 
   const draftNoteBox = el('div');
   const lessonDraft = draftAttach('lesson:' + draft.id,
-    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn]);
+    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn, restIn]);
   /* Самая обидная потеря — закрыть карточку крестиком после того, как
      наговорил рассказ и заполнил поля. Запоминаем, с чем окно открылось,
      и при закрытии без сохранения честно спрашиваем. */
   let saving = false;
   const snapForm = () => JSON.stringify([
     ownerSel.value, topicSel.value, dateIn.value, timeIn.value, durSel.value,
-    planIn.value, noteIn.value, resIn.value, hwIn.value, tellIn.value,
+    planIn.value, noteIn.value, resIn.value, hwIn.value, tellIn.value, restIn.value,
     hwCheck.s || '', hwNoteIn.value, JSON.stringify(marks)
   ]);
   let formWas = '';
@@ -4441,6 +4511,8 @@ function openLessonCard(L, isNew) {
       /* Надиктованный рассказ хранится как есть: даже если разобрать его
          не удалось, слова репетитора не пропадают. */
       tell: tellIn.value.trim(),
+      /* Что кабинет не понял при разборе — тоже хранится, пока не перенесут руками */
+      rest: restIn.value.trim(),
       /* Личные записи участников группы — только непустые */
       per: Object.fromEntries(Object.entries(perData)
         .map(([sid, v]) => [sid, {result: (v.result || '').trim(), homework: (v.homework || '').trim()}])
