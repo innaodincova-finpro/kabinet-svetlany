@@ -6404,7 +6404,16 @@ if (chan) {
     if (m.t === 'busy' && !readOnlyTab) goReadOnly();
     if (m.t === 'yield') goReadOnly();
   };
-  setTimeout(() => { try { chan.postMessage({t: 'hello', id: TAB_ID}); } catch (e) {} }, 400);
+  /* Новая вкладка — это та, в которую человек только что попал:
+     она и работает, остальные уступают. */
+  setTimeout(() => { try { chan.postMessage({t: 'yield', id: TAB_ID}); } catch (e) {} }, 400);
+  /* Вернулись в старую вкладку — она снова становится рабочей сама,
+     перечитав всё, что записали другие окна. Нажимать ничего не нужно. */
+  const wake = () => { if (readOnlyTab && document.visibilityState !== 'hidden') takeOver(true); };
+  document.addEventListener('visibilitychange', wake);
+  window.addEventListener('focus', wake);
+  window.addEventListener('pointerdown', wake, true);
+  window.addEventListener('keydown', wake, true);
 }
 function goReadOnly() {
   if (readOnlyTab) return;
@@ -6412,7 +6421,7 @@ function goReadOnly() {
   saveLamp('bad', 'только просмотр');
   refreshBar();
 }
-function takeOver() {
+function takeOver(auto) {
   readOnlyTab = false;
   try { if (chan) chan.postMessage({t: 'yield', id: TAB_ID}); } catch (e) {}
   S = load();                 // подхватываем то, что записало другое окно
@@ -6420,7 +6429,7 @@ function takeOver() {
   hist = []; redo = [];
   saveLamp('ok', 'сохранено');
   refreshBar(); render();
-  toast('Теперь работаем в этом окне');
+  toast(auto ? 'Продолжаем в этом окне' : 'Теперь работаем в этом окне');
 }
 
 /* --- Браузер отказался сохранять --- */
@@ -6480,7 +6489,7 @@ function refreshBar() {
     return;
   }
   if (readOnlyTab) {
-    put('warn', 'Кабинет открыт в другом окне. Здесь — только просмотр, чтобы окна не затирали работу друг друга.', [btn('Работать здесь', takeOver, true)]);
+    put('warn', 'Сейчас вы работаете в другом окне кабинета. Щёлкните здесь — и продолжим в этом.', [btn('Продолжить здесь', () => takeOver(false), true)]);
     return;
   }
   if (autoFailed) {
