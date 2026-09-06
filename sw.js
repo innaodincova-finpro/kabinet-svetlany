@@ -1,6 +1,6 @@
 'use strict';
 const SCOPE = new URL(self.registration.scope);
-const VERSION = '3.2';
+const VERSION = '3.3';
 const CACHE = 'svetlana-' + VERSION + '-' + SCOPE.pathname;
 const FILES = ['index.html','manifest.webmanifest','icon192.png','icon512.png','appletouchicon.png'];
 const URLS = FILES.map(name => new URL(name, SCOPE).href);

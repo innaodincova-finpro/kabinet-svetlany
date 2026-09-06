@@ -5,10 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Кабинет репетитора: расписание, ученики, методика, материалы и оплата">
-<!-- Учёт хранится локально. Видео, доска и распознавание речи могут использовать внешние сервисы.
-     Ниже это записано правилом для браузера — он сам пресечёт любую попытку
-     обратиться наружу. Разрешены только окно видеозвонка и переход на доску. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; manifest-src 'self'; frame-src https://meet.jit.si https://excalidraw.com; form-action 'none'; base-uri 'none'">
+<!-- Локальный кабинет. Необязательный DeepSeek отправляет только выбранные условия после явного действия. Ключ API хранится на сервере. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src 'self' data: blob:; connect-src 'self' data: blob: https://*.workers.dev; worker-src 'self' blob:; manifest-src 'self'; frame-src https://meet.jit.si https://excalidraw.com; form-action 'none'; base-uri 'none'">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#28425C">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -884,7 +882,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '6 сентября 2026 · исправления 3.2';
+const VERSION = '6 сентября 2026 · исправления 3.3';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -3986,6 +3984,7 @@ function viewHelp() {
 
   return el('div', {},
     head('Помощь', `Самопроверка кабинета: ${ok} из ${checkable} пунктов в порядке`),
+    el('button',{class:'btn',onclick:deepseekSettings},'Настройки DeepSeek'),
     el('div', {class:'grid', style:'grid-template-columns:1fr'},
       el('div', {class:'card'},
         ...C.map(([good, title, note]) => el('div', {class:'crit'},
@@ -4098,7 +4097,7 @@ function viewHelp() {
           el('div', {class:'meta', style:'font-size:13px'},
             'В «Расписании» есть кнопка «В календарь»: занятия выгружаются файлом и открываются в календаре телефона или компьютера — со временем, темой и ссылками на видео и доску. Это снимок на выбранный период: поменяли расписание — выгрузите заново.'),
           el('div', {class:'meta', style:'font-size:13px'},
-            'В «Посещениях и оплате» есть кнопка «Счёт за месяц»: кабинет соберёт по каждому ученику, сколько занятий состоялось, сколько начислено, сколько оплачено и сколько осталось, и подготовит готовый текст для родителей. Отправляете вы сами — кабинет ничего никуда не шлёт.'),
+            'В «Посещениях и оплате» есть кнопка «Счёт за месяц»: кабинет соберёт по каждому ученику, сколько занятий состоялось, сколько начислено, сколько оплачено и сколько осталось, и подготовит готовый текст для родителей. Счёт отправляете вы сами — автоматической отправки родителям нет.'),
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:14px 0 8px', text:'Как диктовать голосом'}),
           el('div', {class:'meta', style:'font-size:13px'},
             'Способ, который работает всегда: поставьте курсор в поле и включите диктовку самого устройства. На Windows — Win+H, на телефоне — значок микрофона на клавиатуре.'),
@@ -4114,10 +4113,109 @@ function viewHelp() {
             'В карточке занятия есть поле «Расскажите про занятие»: наговорите всё подряд и нажмите «Разложить по полям» — кабинет сам разнесёт по «Результату», «Домашнему заданию» и сохранит исходный текст. Посещение отмечайте вручную. Сам рассказ остаётся в поле и сохраняется вместе с карточкой, поэтому надиктованное не пропадёт, даже если разобрать его не вышло.')),
         el('div', {class:'meta', style:'margin-top:12px; font-size:13px'},
           'Кнопка «Убрать учеников и занятия» нужна после знакомства с примером: она стирает учеников, занятия и оплаты, но оставляет методику, материалы и настройки. «Очистить всё» стирает вообще всё, включая темы.'),
-        el('div', {class:'meta', style:'margin-top:12px'}, 'Рабочие часы задают, какую сетку показывать в расписании и в какое время подбирать свободное окно. Занятие вне этих часов всё равно покажется — сетка растянется под него. Учёт хранится в этом браузере. Видео, доска, диктовка и ручной перенос текста в ИИ используют внешние сервисы. Чтобы перенести кабинет на другой компьютер, выгрузите файл и загрузите его там. «Восстановить программу 5–8» возвращает исходное тематическое планирование, если темы случайно изменили или удалили — ваши личные заметки к темам при этом пропадут. «Загрузить пример» наполняет кабинет учебными данными, чтобы посмотреть, как всё устроено; «Очистить всё» стирает весь кабинет целиком, включая ваши темы и материалы.'))));
+        el('div', {class:'meta', style:'margin-top:12px'}, 'Рабочие часы задают, какую сетку показывать в расписании и в какое время подбирать свободное окно. Занятие вне этих часов всё равно покажется — сетка растянется под него. Учёт хранится в этом браузере. Видео, доска, диктовка и ИИ используют внешние сервисы. Необязательный DeepSeek отправляет выбранные условия только по кнопке; его можно выключить в настройках. Чтобы перенести кабинет на другой компьютер, выгрузите файл и загрузите его там. «Восстановить программу 5–8» возвращает исходное тематическое планирование, если темы случайно изменили или удалили — ваши личные заметки к темам при этом пропадут. «Загрузить пример» наполняет кабинет учебными данными, чтобы посмотреть, как всё устроено; «Очистить всё» стирает весь кабинет целиком, включая ваши темы и материалы.'))));
 }
 
 /* ═══════════ КАРТОЧКА ЗАНЯТИЯ ═══════════ */
+/* Optional DeepSeek integration. API credentials never enter this page. */
+let deepseekAccess='',deepseekController=null;
+function deepseekURL(raw){
+ const u=new URL(raw);if(u.protocol!=='https:'||!/^[-a-z0-9]+\.[-a-z0-9]+\.workers\.dev$/i.test(u.hostname)||u.username||u.password||u.port||u.search||u.hash||u.pathname!=='/')throw new Error('Нужен адрес сервера вида https://имя.поддомен.workers.dev без дополнительного пути');return u.origin;
+}
+function deepseekConfig(){try{const c=JSON.parse(localStorage.getItem('deepseek-config')||'{}');return {enabled:c.enabled===true,endpoint:c.endpoint?deepseekURL(c.endpoint):''}}catch{return {enabled:false,endpoint:''}}}
+function saveDeepseekConfig(c){const endpoint=c.endpoint?deepseekURL(c.endpoint):'';if(c.enabled&&!endpoint)throw new Error('Сначала укажите адрес подключения');localStorage.setItem('deepseek-config',JSON.stringify({enabled:!!c.enabled,endpoint}));if(!c.enabled){deepseekAccess='';deepseekController?.abort()}window.dispatchEvent(new Event('deepseek-settings'));}
+function deepseekPages(raw){
+ const parts=raw.trim().split(/[,;\s]+/);const result=[];
+ for(const p of parts){const m=p.match(/^(\d+)(?:-(\d+))?$/);if(!m)throw new Error('Укажите страницы PDF: например 10 или 10-12');const a=+m[1],b=m[2]?+m[2]:a;if(a<1||b<a||b-a>2||b>10000)throw new Error('Выберите от одной до трёх страниц');for(let n=a;n<=b;n++)if(!result.includes(n))result.push(n)}
+ if(!result.length||result.length>3)throw new Error('За один запрос можно отправить до трёх страниц');return result;
+}
+async function deepseekCall(path,payload,signal){
+ const cfg=deepseekConfig();if(!cfg.enabled)throw new Error('DeepSeek выключен в настройках');
+ if(!deepseekAccess)throw new Error('Введите код доступа в настройках DeepSeek');
+ const response=await fetch(cfg.endpoint+path,{method:payload?'POST':'GET',headers:{Authorization:'Bearer '+deepseekAccess,...(payload?{'Content-Type':'application/json'}:{})},body:payload?JSON.stringify(payload):undefined,signal,credentials:'omit',cache:'no-store',redirect:'error'});
+ let result;try{result=await response.json()}catch{throw new Error('Сервер вернул непонятный ответ')}
+ if(!response.ok)throw new Error(result.error||'Ошибка подключения');return result;
+}
+function deepseekSettings(){
+ const c=deepseekConfig(),dlg=el('dialog',{'aria-label':'Настройки DeepSeek',style:'width:min(700px,95vw)'}),warn=el('div',{role:'status'});
+ const enabled=el('input',{type:'checkbox',checked:c.enabled});enabled.checked=c.enabled;
+ const url=el('input',{type:'url',placeholder:'https://имя.поддомен.workers.dev',style:'width:100%'});url.value=c.endpoint;
+ const access=el('input',{type:'password',autocomplete:'off',placeholder:'Код доступа к подключению, не ключ API',style:'width:100%'});access.value=deepseekAccess;
+ function commit(){if(access.value.startsWith('sk-'))throw new Error('Ключ API DeepSeek вводится только на сервере. Здесь нужен отдельный код доступа');saveDeepseekConfig({enabled:enabled.checked,endpoint:url.value.trim()});deepseekAccess=enabled.checked?access.value.trim():'';}
+ dlg.append(el('div',{class:'dlg-h'},el('h2',{},'DeepSeek для домашних заданий')),
+  el('div',{class:'dlg-b'},el('p',{},'По умолчанию функция выключена. Подключение требует отдельного сервера и оплачиваемого API DeepSeek.'),
+   el('label',{class:'field'},enabled,' Включить DeepSeek'),
+   el('label',{class:'field'},el('span',{},'Адрес подключения'),url),
+   el('label',{class:'field'},el('span',{},'Код доступа'),access),
+   el('p',{class:'meta'},'Код действует до перезагрузки этой страницы и не попадает в резервную копию. Ключ API хранится на сервере. Отключение сохраняет готовые решения и отметки; уже отправленный запрос мог быть оплачен.'),warn),
+  el('div',{class:'dlg-f'},el('button',{class:'btn',onclick:()=>dlg.close()},'Закрыть'),
+   el('button',{class:'btn',onclick:async()=>{try{commit();const r=await deepseekCall('/health',null,AbortSignal.timeout(15000));warn.textContent=r.ready?'Сервер настроен. Ключ DeepSeek и баланс ещё не проверены — нужен пробный запрос.':'Сервер доступен, но владелец ещё не включил или не настроил DeepSeek.'}catch(e){warn.textContent=e.message}}},'Проверить сервер'),
+   el('button',{class:'btn btn-primary',onclick:()=>{try{commit();dlg.close();toast(enabled.checked?'DeepSeek включён. Запросы только по кнопке.':'DeepSeek выключен')}catch(e){warn.textContent=e.message}}},'Сохранить настройки')));
+ dlg.addEventListener('close',()=>dlg.remove(),{once:true});document.body.append(dlg);dlg.showModal();
+}
+async function deepseekImages(material,raw){
+ if(!material?.fileId||!(/\.pdf$/i.test(material.fileName||'')))throw new Error('Выберите учебник с прикреплённым PDF');
+ const blob=await getFile(material.fileId);if(!blob)throw new Error('PDF не найден в этом браузере');
+ const lib=window.pdfjsLib;if(!lib)throw new Error('Просмотрщик PDF недоступен');lib.GlobalWorkerOptions.workerSrc='';
+ const task=lib.getDocument({data:new Uint8Array(await blob.arrayBuffer()),isEvalSupported:false,useSystemFonts:false});let doc;
+ try{
+  doc=await task.promise;const pages=deepseekPages(raw),images=[];
+  for(const n of pages){if(n>doc.numPages)throw new Error('В PDF только '+doc.numPages+' страниц');const page=await doc.getPage(n),base=page.getViewport({scale:1});
+   const view=page.getViewport({scale:1800/Math.max(base.width,base.height)}),canvas=document.createElement('canvas');canvas.width=Math.ceil(view.width);canvas.height=Math.ceil(view.height);
+   try{await page.render({canvasContext:canvas.getContext('2d'),viewport:view,background:'rgb(255,255,255)'}).promise;const url=canvas.toDataURL('image/jpeg',0.9);if(url.length>2700000)throw new Error('Страница слишком большая для запроса');images.push(url)}finally{canvas.width=0;canvas.height=0;page.cleanup()}
+  }return images;
+ }finally{if(doc)await doc.destroy();else await task.destroy()}
+}
+function deepseekSolve(value,onApply){
+ const cfg=deepseekConfig();if(!cfg.enabled||!cfg.endpoint||!deepseekAccess){toast('Сначала включите и настройте DeepSeek');deepseekSettings();return}
+ if(deepseekController){toast('Дождитесь текущего запроса или отмените его');return}
+ const dlg=el('dialog',{'aria-label':'Получить решение от DeepSeek',style:'width:min(900px,96vw)'});
+ const mode=el('select',{},el('option',{value:'pdf'},'Страницы выбранного учебника'),el('option',{value:'text'},'Вставить условия текстом'));
+ const tasks=el('textarea',{style:'width:100%;min-height:60px'});tasks.value=value.assignment;
+ const pages=el('input',{type:'text',placeholder:'Например 10-12',style:'width:100%'});
+ const text=el('textarea',{style:'width:100%;min-height:140px',placeholder:'Вставьте полные условия выбранных упражнений'});
+ const material=S.materials.find(m=>m.id===value.bookId);
+ const preview=el('div'),warn=el('div',{role:'status',style:'white-space:pre-wrap'}),resultBox=el('div');
+ let prepared=null,signature='',answer=null,loading=false,working=false,closed=false,applied=false,controller=null;
+ const current=()=>JSON.stringify([mode.value,tasks.value,pages.value,text.value]);
+ const send=el('button',{class:'btn btn-primary',disabled:true},'Отправить в DeepSeek');send.disabled=true;
+ const prepare=el('button',{class:'btn'},'Показать, что будет отправлено');
+ const cancel=el('button',{class:'btn',onclick:()=>{controller?.abort();warn.textContent='Получение отменено. Уже отправленный запрос мог быть оплачен.'}},'Отменить запрос');cancel.disabled=true;
+ const apply=el('button',{class:'btn btn-primary',onclick:()=>{if(answer){onApply(answer);applied=true;dlg.close()}}},'Добавить черновик в решения');apply.disabled=true;
+ const invalidate=()=>{prepared=null;send.disabled=true;preview.textContent='';};for(const n of [mode,tasks,pages,text]){n.addEventListener('input',invalidate);n.addEventListener('change',invalidate)}
+ const pdfFields=el('div',{},el('p',{},'Учебник: '+(material?.title||'не выбран — выберите его в окне решений')),
+  el('label',{class:'field'},el('span',{},'Номера страниц в файле PDF, до трёх'),pages),el('p',{class:'meta'},'Это позиции страниц в PDF. Они могут отличаться от напечатанных номеров. Сверьте изображения перед отправкой.'));
+ const textFields=el('label',{class:'field'},el('span',{},'Полные условия заданий'),text);
+ const showMode=()=>{pdfFields.style.display=mode.value==='pdf'?'':'none';textFields.style.display=mode.value==='text'?'':'none'};mode.addEventListener('change',showMode);showMode();
+ prepare.addEventListener('click',async()=>{
+  if(loading||working)return;loading=true;prepare.disabled=true;send.disabled=true;prepared=null;preview.textContent='';warn.textContent='Подготовка…';const sig=current();
+  try{const assignment=tasks.value.trim();if(!assignment||assignment.length>2000)throw new Error('Укажите номера заданий — до 2000 символов');
+   const payload={assignment,text:mode.value==='text'?text.value.trim():'',images:[]};
+   if(mode.value==='pdf')payload.images=await deepseekImages(material,pages.value);else if(!payload.text||payload.text.length>16000)throw new Error('Вставьте условия — до 16000 символов');
+   if(closed)return;if(sig!==current())throw new Error('Поля изменились. Подготовьте просмотр заново');prepared=payload;signature=sig;
+   preview.append(el('p',{style:'white-space:pre-wrap'},'Нужно решить: '+payload.assignment),el('p',{style:'white-space:pre-wrap'},payload.text),...payload.images.map(src=>el('img',{src,alt:'Выбранная страница для DeepSeek',style:'display:block;max-width:100%;height:auto;margin:12px 0'})));
+   warn.textContent='Проверьте задания и читаемость страниц. По кнопке ниже этот текст и изображения отправятся в DeepSeek через ваш сервер. Обращение платное. Записи об учениках и оплатах автоматически не отправляются.';send.disabled=false;
+  }catch(e){warn.textContent=e.message}finally{loading=false;prepare.disabled=false}
+ });
+ send.addEventListener('click',async()=>{
+  if(working||!prepared||signature!==current())return;if(deepseekController){warn.textContent='Уже выполняется другой запрос';return}
+  working=true;send.disabled=true;prepare.disabled=true;apply.disabled=true;cancel.disabled=false;controller=new AbortController();deepseekController=controller;
+  const timer=setTimeout(()=>controller.abort(),100000);const payload={...prepared,requestId:crypto.randomUUID()};prepared=null;
+  warn.textContent='DeepSeek решает задания…';
+  try{const r=await deepseekCall('/solve',payload,controller.signal);if(closed)return;if(typeof r.text!=='string'||!r.text.trim())throw new Error('Получен пустой ответ');answer=r;
+   resultBox.textContent='';const ta=el('textarea',{readonly:true,style:'width:100%;min-height:320px'});ta.value=r.text;resultBox.append(el('h3',{},'Черновик DeepSeek'),ta);
+   warn.textContent=(r.incomplete?'Ответ неполный — достигнут лимит или генерация остановлена. ':'')+'Проверьте условия, ход решения и ответы. Осталось обращений сегодня: '+r.remaining+'. Для сохранения добавьте черновик в решения, затем нажмите «Сохранить решения».';apply.disabled=false;
+  }catch(e){if(!closed)warn.textContent=e.name==='AbortError'?'Ожидание прекращено. Запрос мог быть оплачен; автоматический повтор не выполняется.':e.message}
+  finally{clearTimeout(timer);if(deepseekController===controller)deepseekController=null;working=false;cancel.disabled=true;prepare.disabled=false}
+ });
+ const close=()=>{if(answer&&!applied){ask('Закрыть черновик?','Ответ ещё не добавлен в решения.','Закрыть без добавления',()=>{closed=true;controller?.abort();dlg.close()},true)}else{closed=true;controller?.abort();dlg.close()}};
+ dlg.append(el('div',{class:'dlg-h'},el('h2',{},'Получить решение от DeepSeek')),
+  el('div',{class:'dlg-b'},el('label',{class:'field'},el('span',{},'Какие упражнения решить'),tasks),el('label',{class:'field'},el('span',{},'Источник условий'),mode),pdfFields,textFields,prepare,preview,warn,resultBox),
+  el('div',{class:'dlg-f'},el('button',{class:'btn',onclick:close},'Закрыть'),cancel,send,apply));
+ const settingsChanged=()=>{if(!deepseekConfig().enabled){controller?.abort();send.disabled=true;warn.textContent='DeepSeek выключен. Новый запрос не отправляется.'}};window.addEventListener('deepseek-settings',settingsChanged);
+ const beforeLeave=e=>{if(working||(answer&&!applied)){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',beforeLeave);
+ dlg.oncancel=e=>{e.preventDefault();close()};dlg.addEventListener('close',()=>{window.removeEventListener('beforeunload',beforeLeave);closed=true;controller?.abort();window.removeEventListener('deepseek-settings',settingsChanged);dlg.remove()},{once:true});document.body.append(dlg);dlg.showModal();
+}
 /* Manual homework solutions, assignment snapshots and individual checking. */
 function homeworkFileRefs(d){return [...d.materials,...d.lessons.flatMap(l=>l.homeworkSolutions||[])]}
 function homeworkTarget(current,sid){
@@ -4198,14 +4296,20 @@ function openHomeworkSolutions(target,people,stored){
  const upload=el('input',{type:'file',accept:'.pdf,application/pdf'});
  upload.addEventListener('change',()=>{pendingFile=upload.files?.[0]||null;if(pendingFile){changed();fileLine.textContent=pendingFile.name+' · сохранится после нажатия «Сохранить решения»'}});
  body.append(el('p',{style:'white-space:pre-wrap'},'Задано '+fmtDate(lesson.date)+': '+assignment),
-  el('p',{class:'meta'},'Вставьте подготовленные решения или прикрепите PDF. Автоматическое чтение учебника и генерация ИИ здесь не подключены.'),
+  el('p',{class:'meta'},'Вставьте подготовленные решения или прикрепите PDF. Для получения решения из выбранных страниц настройте необязательное подключение DeepSeek.'),
   field('Учебник из материалов',book),el('button',{class:'btn',onclick:()=>{const m=S.materials.find(m=>m.id===value.bookId);if(m?.fileId)openMaterialFile(m);else toast('Выберите учебник с прикреплённым файлом')}},'Открыть учебник'),
   field('Страницы учебника',input(value.pages,v=>{value.pages=v;changed()})),
   field('Общие решения и пояснения',area(value.text,v=>{value.text=v;changed()},'Вставьте текст с полным ходом решения. Для отдельных упражнений используйте блоки ниже.')),
   field('PDF с решениями — до 25 МБ',upload),fileLine,
   el('button',{class:'btn',onclick:()=>{if(pendingFile){toast('Сначала сохраните выбранный PDF');return}if(value.fileId)openMaterialFile(value);else toast('PDF пока не прикреплён')}},'Открыть PDF'),
   el('button',{class:'btn',onclick:()=>{pendingFile=null;upload.value='';value.fileId=null;value.fileName='';fileLine.textContent='PDF будет откреплён после сохранения';changed()}},'Открепить PDF'),field('Статус решения',status));
- const exercises=el('div');body.append(exercises);
+ body.append(el('button',{class:'btn',onclick:()=>deepseekSolve(value,r=>{
+     value.text=(value.text?value.text+'\n\n':'')+'Черновик DeepSeek'+(r.incomplete?' (НЕПОЛНЫЙ)':'')+'\n'+r.text;
+     value.status='ai';status.value='ai';
+     const ta=body.querySelectorAll('textarea')[0];ta.value=value.text;
+     warn.textContent='Черновик добавлен. Проверьте решение и нажмите «Сохранить решения».';
+   })},'Получить решение от DeepSeek'),el('button',{class:'btn',onclick:deepseekSettings},'Настройки DeepSeek'));
+   const exercises=el('div');body.append(exercises);
  function draw(){
   exercises.textContent='';
   value.exercises.forEach((x,index)=>{
@@ -6978,7 +7082,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || local)) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').then(async registration => {
       await navigator.serviceWorker.ready;
-      const cache=await caches.open('svetlana-3.2-'+new URL('./',location.href).pathname);
+      const cache=await caches.open('svetlana-3.3-'+new URL('./',location.href).pathname);
       window.offlineReady=Boolean(await cache.match(new URL('index.html',location.href).href));
       window.dispatchEvent(new Event('offline-status'));
     }).catch(()=>{window.offlineReady=false});
