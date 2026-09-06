@@ -1,0 +1,27 @@
+name: Cabinet saving and recovery
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build from fixed legacy baseline
+        run: |
+          mkdir -p maintenance/safety/site
+          git show d72c7d2e8ebab0573b3289c1f8bd726271dbe49d:index.html > maintenance/safety/source/baseline.html
+          git show d72c7d2e8ebab0573b3289c1f8bd726271dbe49d:sw.js > maintenance/safety/site/sw.js
+          python maintenance/safety/source/build.py
+          cmp index.html maintenance/safety/site/index.html
+          cmp sw.js maintenance/safety/site/sw.js
+      - name: Check saving and recovery
+        run: node maintenance/safety/tests/safety.cjs
