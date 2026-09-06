@@ -1,42 +1,34 @@
-/* Кабинет должен открываться даже без интернета — например, если связь пропала
-   посреди занятия. Поэтому страница и значки хранятся в браузере.
-   Саму страницу берём сначала из сети: так обновления видны сразу,
-   а копия из памяти выручает только когда сети нет. */
-const CACHE = 'tochka-2026-08';
-const CORE = ['./', './index.html', './icon192.png', './icon512.png', './iconmaskable.png', './manifest.webmanifest'];
-
-self.addEventListener('install', e => {
-  self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).catch(() => {}));
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil((async () => {
-    const names = await caches.keys();
-    await Promise.all(names.filter(n => n !== CACHE).map(n => caches.delete(n)));
-    await self.clients.claim();
-  })());
-});
-
-self.addEventListener('fetch', e => {
-  const req = e.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return;          // шрифты и прочее — как обычно
-
-  const isPage = req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('.html');
-  if (isPage) {
-    e.respondWith((async () => {
+'use strict';
+const SCOPE = new URL(self.registration.scope);
+const VERSION = '3.2';
+const CACHE = 'svetlana-' + VERSION + '-' + SCOPE.pathname;
+const FILES = ['index.html','manifest.webmanifest','icon192.png','icon512.png','appletouchicon.png'];
+const URLS = FILES.map(name => new URL(name, SCOPE).href);
+self.addEventListener('install',event=>event.waitUntil((async()=>{
+  const cache=await caches.open(CACHE);
+  await cache.addAll(URLS.map(url=>new Request(url,{cache:'reload'})));
+  await self.skipWaiting();
+})()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{
+  // Clean up only our versioned caches for this exact cabinet path.
+  for(const key of await caches.keys())if(/^svetlana-[0-9.]+-/.test(key)&&key.endsWith('-'+SCOPE.pathname)&&key!==CACHE)await caches.delete(key);
+  await self.clients.claim();
+})()));
+self.addEventListener('fetch',event=>{
+  const request=event.request,url=new URL(request.url);
+  if(request.method!=='GET'||url.origin!==SCOPE.origin)return;
+  if(request.mode==='navigate'&&url.pathname.startsWith(SCOPE.pathname)){
+    event.respondWith((async()=>{
+      const cache=await caches.open(CACHE);
       try {
-        const fresh = await fetch(req);
-        const copy = fresh.clone();
-        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
-        return fresh;
-      } catch (err) {
-        return (await caches.match(req)) || (await caches.match('./index.html')) || Response.error();
-      }
-    })());
-  } else {
-    e.respondWith(caches.match(req).then(hit => hit || fetch(req)));
+        const response=await fetch(request);
+        // Keep the installed release atomic: the next SW version installs its own set.
+        if(response.ok)return response;
+      }catch(e){}
+      return await cache.match(URLS[0]) || new Response('Офлайн-копия ещё не готова. Откройте кабинет с интернетом.',{status:503,headers:{'Content-Type':'text/plain;charset=utf-8'}});
+    })());return;
   }
+  if(URLS.includes(url.href))event.respondWith((async()=>{
+    const cache=await caches.open(CACHE);return await cache.match(url.href)||fetch(request);
+  })());
 });
