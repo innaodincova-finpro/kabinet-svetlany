@@ -6717,11 +6717,11 @@ async function safeRecoveryList() {
     try{const raw=localStorage.getItem(key);if(raw){const obj=JSON.parse(raw);candidates.push({reason:key.includes('shadow')?'Запасная запись браузера':'Сохранённая запись браузера',text:obj.d?JSON.stringify(obj.d):raw})}}catch{}
   }
   try{candidates.push(...await safeTx('readonly',s=>s.get('history'))||[])}catch(e){body.append(el('p',{},'Не удалось прочитать историю копий: '+e.message))}
-  const seen=new Set();for(const item of candidates){
-    if(item.file){body.append(el('div',{class:'card'},el('p',{},item.reason+' · '+item.at+' · '+fmtSize(item.file.size)),el('button',{class:'btn',onclick:()=>{dlg.close();safeImportFile(item.file)}},'Выбрать копию')));continue;}
-    if(seen.has(item.text))continue;seen.add(item.text);try{const d=JSON.parse(item.text);safePrepare(d);body.append(el('div',{class:'card'},el('p',{},item.reason+' · '+(item.at||d.updatedAt||'без даты')+' · '+d.students.length+' учеников, '+d.lessons.length+' занятий'),el('button',{class:'btn',onclick:()=>{dlg.close();safeImportFile(new Blob([item.text]))}},'Выбрать копию')))}catch{}
+  const seen=new Set();let shown=0;for(const item of candidates){
+    if(item.file){body.append(el('div',{class:'card'},el('p',{},item.reason+' · '+item.at+' · '+fmtSize(item.file.size)),el('button',{class:'btn',onclick:()=>{dlg.close();safeImportFile(item.file)}},'Выбрать копию')));shown++;continue;}
+    if(seen.has(item.text))continue;seen.add(item.text);try{const d=JSON.parse(item.text);safePrepare(d);body.append(el('div',{class:'card'},el('p',{},item.reason+' · '+(item.at||d.updatedAt||'без даты')+' · '+d.students.length+' учеников, '+d.lessons.length+' занятий'),el('button',{class:'btn',onclick:()=>{dlg.close();safeImportFile(new Blob([item.text]))}},'Выбрать копию')));shown++}catch{}
   }
-  if(!seen.size)body.append(el('p',{},'В браузере не найдены копии. Можно загрузить файл из OneDrive.'));
+  if(!shown)body.append(el('p',{},'В браузере не найдены копии. Можно загрузить файл из OneDrive.'));
 }
 function safeSummary() {
   return (autoHandle?'Файл: '+autoHandle.name+'. ':'')+safeStatus+(safeLastAt?' Последняя проверенная запись: '+new Date(safeLastAt).toLocaleString('ru-RU')+'.':'')+' Отправку в облако выполняет OneDrive; кабинет проверяет запись файла, но не доставку в облако.';
