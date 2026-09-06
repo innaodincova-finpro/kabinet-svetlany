@@ -851,7 +851,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '31 августа 2026';
+const VERSION = '6 сентября 2026 · сохранение 1.1';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -1428,14 +1428,13 @@ function openFileDb() {
   });
 }
 function fileTx(mode, fn) {
-  return openFileDb().then(db => new Promise((res, rej) => {
-    const tx = db.transaction(FILE_STORE, mode);
-    const rq = fn(tx.objectStore(FILE_STORE));
-    rq.onsuccess = () => res(rq.result);
-    rq.onerror = () => rej(rq.error);
+  return openFileDb().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(FILE_STORE,mode);let result;const rq=fn(tx.objectStore(FILE_STORE));
+    rq.onsuccess=()=>{result=rq.result};tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||new Error('Ошибка хранения файла'));
   }));
 }
-const putFile = (id, blob) => fileTx('readwrite', st => st.put(blob, id));
+
+const putFile = (id, blob) => { safeFilePartsCache.delete(id); return fileTx('readwrite', st => st.put(blob, id)); };
 const getFile = id => fileTx('readonly', st => st.get(id));
 const dropFile = id => fileTx('readwrite', st => st.delete(id));
 
@@ -3731,41 +3730,7 @@ function viewHelp() {
   const checkable = C.filter(c => c[0] !== null).length;
 
   const fileIn = el('input', {type:'file', accept:'.json', style:'display:none', onchange: e => {
-    const f = e.target.files[0]; if (!f) return;
-    const rd = new FileReader();
-    rd.onload = () => {
-      let d = null;
-      try {
-        d = JSON.parse(rd.result);
-        if (!d || !Array.isArray(d.students) || !Array.isArray(d.lessons)) throw new Error('bad');
-      } catch (err) { toast('Файл не похож на выгрузку кабинета'); fileIn.value = ''; return; }
-
-      /* Замена всего кабинета — слишком крупное действие, чтобы делать его молча.
-         Показываем, что внутри файла, и спрашиваем. */
-      const when = d.updatedAt ? new Date(d.updatedAt).toLocaleString('ru-RU', {day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'}) : 'без даты';
-      const cnt = `${d.students.length} ${plural(d.students.length,'ученик','ученика','учеников')}, ${d.lessons.length} ${plural(d.lessons.length,'занятие','занятия','занятий')}`;
-      const nowCnt = `${S.students.length} ${plural(S.students.length,'ученик','ученика','учеников')} и ${S.lessons.length} ${plural(S.lessons.length,'занятие','занятия','занятий')}`;
-      ask('Загрузить копию из файла?',
-        `В файле: ${cnt}. Копия сохранена ${when}.\n\nВсё, что сейчас в кабинете (${nowCnt}), будет заменено. Если передумаете — сразу после загрузки нажмите «↶ Отменить».`,
-        'Загрузить', () => {
-          S = migrate(d);
-          save('Загружены данные из файла');
-          resetChanges();
-          toast('Данные загружены');
-          /* Если в копии есть материалы-файлы, а в этом браузере их нет —
-             честно предупреждаем сразу, а не при первом открытии на уроке. */
-          const need = (S.materials || []).filter(m => m.fileId);
-          if (need.length) setTimeout(async () => {
-            let missing = 0;
-            for (const m of need) { try { if (!(await getFile(m.fileId))) missing++; } catch (e) { missing++; } }
-            if (missing) ask('Файлы нужно загрузить заново',
-              `Данные восстановлены полностью. Но сами файлы — учебники, тетради, картинки — в копию не входят: их ${missing} из ${need.length}, и в этом браузере их нет.\n\nОткройте раздел «Материалы» и загрузите файлы с компьютера ещё раз — названия и привязка к темам уже на месте.`,
-              'Открыть «Материалы»', () => go('materials'));
-          }, 400);
-        }, true);
-      fileIn.value = '';
-    };
-    rd.readAsText(f);
+    const f=e.target.files[0];if(f)safeImportFile(f);e.target.value='';
   }});
 
   const curSel = el('select', {style:'max-width:140px', onchange: e => { S.currency = e.target.value; save('Изменена валюта'); }},
@@ -3821,6 +3786,8 @@ function viewHelp() {
           el('label', {class:'field'}, el('span',{},'Рабочий день заканчивается'), endSel)),
         el('div', {class:'row'},
           el('button', {class:'btn btn-sm', onclick: backupNow}, 'Выгрузить всё в файл'),
+          el('button',{class:'btn btn-sm',onclick:safeRecoveryList},'История и восстановление'),
+          el('button',{class:'btn btn-sm',onclick:()=>autoSaveNow(true)},'Записать сейчас'),
           el('button', {class:'btn btn-sm', onclick:() => fileIn.click()}, 'Загрузить из файла'),
           fileIn,
           el('button', {class:'btn btn-sm', onclick: loadProgrammeDialog}, 'Восстановить программу 5–8'),
@@ -3843,23 +3810,23 @@ function viewHelp() {
             'Последняя копия: ' + (lastBackup() ? fmtDate(lastBackup()) + ' (' + daysSinceBackup() + ' ' + plural(daysSinceBackup(),'день','дня','дней') + ' назад)' : 'ещё не сохранялась')),
           el('div', {class:'meta', style:'font-size:13px'},
             'Хранилище браузера: ' + (persistState === 'защищено'
-              ? 'защищено — браузер не сотрёт данные сам'
+              ? 'запрошена защита от автоматической очистки; резервная копия всё равно нужна'
               : persistState === 'обычное'
                 ? 'обычное — при нехватке места на диске браузер может очистить данные сайта, поэтому храните копии'
                 : 'проверяется…')),
           el('div', {class:'meta', style:'font-size:13px'},
-            'Копия — обычный файл. Сохраняйте его в папку, которая синхронизируется с облаком, — тогда данные переживут и поломку компьютера.'),
+            'Полная копия включает записи, методику и вложения. Файл обновляется через 20 секунд после изменений; при непрерывной работе — не реже попытки в минуту. OneDrive отдельно отправляет файл в облако.'),
           el('div', {style:'margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft)'},
             el('div', {class:'row', style:'gap:10px; flex-wrap:wrap; align-items:center'},
-              el('b', {style:'font-size:13px', text: autoOn ? 'Автосохранение включено' : 'Автосохранение выключено'}),
+              el('b', {style:'font-size:13px', text: autoFailed ? 'Автосохранение требует внимания' : autoOn ? 'Автосохранение настроено' : 'Автосохранение не настроено'}),
               canAuto()
                 ? el('button', {class:'btn btn-sm', onclick: () => autoOn ? autoOff() : autoSetup()}, autoOn ? 'Выключить' : 'Настроить автосохранение')
                 : null),
             el('div', {class:'meta', style:'font-size:12.5px; margin-top:6px', text: !canAuto()
               ? 'В этом браузере автосохранение недоступно — нужен Chrome и кабинет, открытый по адресу в интернете. Сохраняйте копию кнопкой выше.'
               : autoOn
-                ? 'Кабинет сам обновляет выбранный файл: после отметки занятия и при закрытии окна. Напоминания при этом не показываются.'
-                : 'Один раз выберите файл в облачной папке (Google Диск, Яндекс Диск, OneDrive) — дальше кабинет будет обновлять его сам, без вопросов и окон.'}))),
+                ? safeSummary()
+                : 'Выберите файл в папке OneDrive один раз. Кабинет запоминает выбор. Для записи браузер может потребовать разрешение.'}))),
         el('div', {style:'margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Видео и доска'}),
           el('div', {class:'meta', style:'font-size:13px'},
@@ -5241,7 +5208,7 @@ function nativeSave(filename, data) {
     a.href = url; a.download = filename; a.rel = 'noopener';
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 15000);
-    toast('Файл сохранён');
+    toast('Скачивание начато');
     return true;
   } catch (e) { return false; }
 }
@@ -5256,7 +5223,7 @@ async function saveGenerated(base, ext, data, spare) {
   }
   try {
     await dl.save({filename: `${base}.${ext}`, data});
-    toast('Файл сохранён');
+    toast('Скачивание начато');
     return true;
   } catch (e) {
     const code = e && e.code;
@@ -6133,15 +6100,21 @@ function promptParentLetter(st, month) {
 /* Копия всего кабинета одним файлом. Дата последней копии запоминается,
    чтобы кабинет мог напомнить, если давно не сохраняли. */
 async function backupNow() {
-  await downloadFile(`Кабинет ${S.tutor} — копия ${iso(new Date())}.json`, JSON.stringify(S, null, 2));
-  try { localStorage.setItem('tochka-backup', iso(new Date())); } catch (e) {}
-  resetChanges();
-  render();
-  /* Учебники и другие файлы лежат в браузере отдельно и в копию не входят.
-     Сказать об этом надо в момент сохранения, а не мелким шрифтом в разделе. */
-  const withFiles = (S.materials || []).filter(m => m.fileId).length;
-  if (withFiles) setTimeout(() => toast(`Копия сохранена. Файлы (${withFiles}) в неё не входят — на другом компьютере загрузите их заново`), 900);
+  if(dataUnreadable || readOnlyTab || safeBusy || safeImporting){toast('Сначала завершите восстановление или текущее сохранение');return;}
+  let handle=null;
+  if(canAuto()) {
+    try{handle=await window.showSaveFilePicker({suggestedName:'Кабинет Светлана — полная копия '+iso(new Date())+'.json',types:[{description:'Полная копия кабинета',accept:{'application/json':['.json']}}]});}
+    catch(e){if(e.name!=='AbortError')toast('Не удалось выбрать файл: '+e.message);return;}
+  }
+  safeBusy=true;
+  try{
+    const before=snapshot(),changes=changesSince(),text=await safeBackupBlob(JSON.parse(before));
+    if(handle){await safeWriteHandle(handle,text,before);safeComplete(before,changes);toast('Полная копия записана и проверена');}
+    else if(nativeSave('Кабинет Светлана — полная копия '+iso(new Date())+'.json',text)){toast('Скачивание полной копии начато. Проверьте файл в «Загрузках».');}
+    else throw new Error('Не удалось начать скачивание');
+  }catch(e){toast(e.message)}finally{safeBusy=false;if(safePending){safePending=false;autoSaveSoon();}}
 }
+
 const lastBackup = () => { try { return localStorage.getItem('tochka-backup') || ''; } catch (e) { return ''; } };
 const daysSinceBackup = () => {
   const d = lastBackup();
@@ -6410,76 +6383,57 @@ function dayFinished() {
 /* --- Автосохранение копии в выбранный файл (Chrome) --- */
 const AUTO_DB = 'tochka-auto', AUTO_STORE = 'handles';
 function autoTx(mode, fn) {
-  return new Promise((res, rej) => {
-    const rq = indexedDB.open(AUTO_DB, 1);
-    rq.onupgradeneeded = () => { if (!rq.result.objectStoreNames.contains(AUTO_STORE)) rq.result.createObjectStore(AUTO_STORE); };
-    rq.onerror = () => rej(rq.error);
-    rq.onsuccess = () => {
-      try {
-        const tx = rq.result.transaction(AUTO_STORE, mode);
-        const r = fn(tx.objectStore(AUTO_STORE));
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      } catch (e) { rej(e); }
-    };
-  });
+ return new Promise((resolve,reject)=>{
+  const rq=indexedDB.open(AUTO_DB,1);
+  rq.onupgradeneeded=()=>{if(!rq.result.objectStoreNames.contains(AUTO_STORE))rq.result.createObjectStore(AUTO_STORE)};
+  rq.onerror=()=>reject(rq.error);rq.onsuccess=()=>{const db=rq.result;try{
+    const tx=db.transaction(AUTO_STORE,mode);let result;const r=fn(tx.objectStore(AUTO_STORE));r.onsuccess=()=>{result=r.result};
+    tx.oncomplete=()=>{db.close();resolve(result)};tx.onabort=tx.onerror=()=>{db.close();reject(tx.error||new Error('Не удалось сохранить настройку'))};
+  }catch(e){db.close();reject(e)}};
+ });
 }
+
 const canAuto = () => typeof window.showSaveFilePicker === 'function';
 let autoHandle = null, autoOn = false, autoFailed = false, autoTimer = null;
 
 async function autoSetup() {
-  if (!canAuto()) { toast('Автосохранение работает в Chrome'); return; }
-  let h;
-  try {
-    h = await window.showSaveFilePicker({
-      suggestedName: `Кабинет ${S.tutor} — копия.json`,
-      types: [{description: 'Копия кабинета', accept: {'application/json': ['.json']}}]
-    });
-  } catch (e) { return; }   // выбор отменили
-  autoHandle = h; autoOn = true; autoFailed = false;
-  try { await autoTx('readwrite', st => st.put(h, 'file')); } catch (e) {}
-  await autoSaveNow(true);
-  render();
+ if(!canAuto())return;
+ let h;try{h=await window.showSaveFilePicker({suggestedName:'Кабинет Светлана — полная копия.json',types:[{description:'Копия кабинета',accept:{'application/json':['.json']}}]})}catch(e){return;}
+ try{await autoTx('readwrite',s=>s.put(h,'file'));autoHandle=h;autoOn=true;autoFailed=false;safeLastSnapshot=null;await autoSaveNow(true);render();}
+ catch(e){safeStatus='Настройка не сохранена: '+e.message;toast(safeStatus);refreshBar();}
 }
 async function autoOff() {
-  autoHandle = null; autoOn = false; autoFailed = false;
-  try { await autoTx('readwrite', st => st.delete('file')); } catch (e) {}
-  toast('Автосохранение выключено');
-  render(); refreshBar();
+ if(safeBusy){toast('Дождитесь завершения записи');return;}
+ try{await autoTx('readwrite',s=>s.delete('file'));autoHandle=null;autoOn=false;autoFailed=false;clearTimeout(autoTimer);clearTimeout(safeMaxTimer);safeMaxTimer=null;safeStatus='Автосохранение выключено';render();refreshBar();}
+ catch(e){toast('Не удалось отключить: '+e.message);}
 }
 async function autoSaveNow(loud) {
-  if (!autoOn || !autoHandle || readOnlyTab || dataUnreadable) return false;
-  try {
-    let p = await autoHandle.queryPermission({mode: 'readwrite'});
-    if (p !== 'granted' && loud) p = await autoHandle.requestPermission({mode: 'readwrite'});
-    if (p !== 'granted') throw new Error('no permission');
-    const w = await autoHandle.createWritable();
-    await w.write(JSON.stringify(S, null, 2));
-    await w.close();
-    try { localStorage.setItem('tochka-backup', iso(new Date())); } catch (e) {}
-    autoFailed = false;
-    resetChanges();
-    saveLamp('ok', 'копия ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}));
-    if (loud) toast('Копия записана в файл');
-    return true;
-  } catch (e) {
-    autoFailed = true; refreshBar();
-    if (loud) toast('Не удалось записать копию в файл');
-    return false;
-  }
+ if(!autoOn||!autoHandle||readOnlyTab||dataUnreadable||safeImporting)return false;
+ if(safeBusy){safePending=true;return false;}
+ safeBusy=true;const handle=autoHandle;
+ try {
+  let p=await handle.queryPermission({mode:'readwrite'});
+  if(p!=='granted'&&loud)p=await handle.requestPermission({mode:'readwrite'});
+  if(p!=='granted')throw new Error('Разрешите запись в ранее выбранный файл кнопкой «Записать сейчас».');
+  const before=snapshot(),changes=changesSince();
+  if(before===safeLastSnapshot&&!autoFailed)return true;
+  safeStatus='Записываем полную копию с вложениями…';refreshBar();
+  const text=await safeBackupBlob(JSON.parse(before));
+  if(readOnlyTab||dataUnreadable||handle!==autoHandle||!autoOn)throw new Error('Запись остановлена: изменилось рабочее окно');
+  await safeWriteHandle(handle,text,before);
+  safeComplete(before,changes,true);autoFailed=false;safeStatus='Полная копия записана и проверена';
+  if(loud)toast(safeStatus);return true;
+ }catch(e){autoFailed=true;safeStatus='Копия не обновлена: '+e.message;if(loud)toast(safeStatus);return false;}
+ finally{safeBusy=false;refreshBar();if(typeof cur!=='undefined'&&cur==='help')render();if(safePending){safePending=false;autoSaveSoon();}}
 }
 function autoSaveSoon() {
-  if (!autoOn) return;
-  clearTimeout(autoTimer);
-  autoTimer = setTimeout(() => autoSaveNow(false), 20000);
+ if(!autoOn)return;
+ clearTimeout(autoTimer);
+ const fire=()=>{clearTimeout(autoTimer);clearTimeout(safeMaxTimer);safeMaxTimer=null;autoSaveNow(false)};
+ autoTimer=setTimeout(fire,20000);
+ if(!safeMaxTimer)safeMaxTimer=setTimeout(fire,60000);
 }
-(async () => {
-  if (!canAuto()) return;
-  try {
-    const h = await autoTx('readonly', st => st.get('file'));
-    if (h) { autoHandle = h; autoOn = true; refreshBar(); if (typeof cur !== 'undefined' && cur === 'help') render(); }
-  } catch (e) {}
-})();
+
 
 /* --- Кабинет открыт в двух окнах --- */
 const TAB_ID = Math.random().toString(36).slice(2);
@@ -6498,7 +6452,7 @@ if (chan) {
   setTimeout(() => { try { chan.postMessage({t: 'yield', id: TAB_ID}); } catch (e) {} }, 400);
   /* Вернулись в старую вкладку — она снова становится рабочей сама,
      перечитав всё, что записали другие окна. Нажимать ничего не нужно. */
-  const wake = () => { if (readOnlyTab && document.visibilityState !== 'hidden') takeOver(true); };
+  const wake = () => { if (readOnlyTab && document.visibilityState !== 'hidden' && !document.querySelector('dialog[open]')) takeOver(true); };
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('focus', wake);
   window.addEventListener('pointerdown', wake, true);
@@ -6582,7 +6536,7 @@ function refreshBar() {
     return;
   }
   if (autoFailed) {
-    put('warn', 'Копия в файл не записалась — браузер не дал доступ.', [btn('Записать сейчас', () => autoSaveNow(true), true)]);
+    put('warn', safeStatus, [btn('Записать сейчас', () => autoSaveNow(true), true)]);
     return;
   }
   if (autoOn) return;   // копия пишется сама, напоминать незачем
@@ -6602,6 +6556,251 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', () => { shadowSave(); });
 
+/* Safety maintenance release. Storage names are deliberately unchanged. */
+const SAFE_META = '__svetlanaBackup';
+const SAFE_DB = 'svetlana-safety-v1';
+let safeBusy = false, safeImporting = false, safePending = false;
+let safeMaxTimer = null, safeBooting = true, safeKnownRaw = null;
+let safeStatus = 'Проверяем настройку автосохранения…', safeLastSnapshot = null;
+let safeLastAt = '', safeError = '', safeHistoryQueue = Promise.resolve();
+const safeFilePartsCache=new Map();
+async function safeEncodeBlob(blob){
+  if(typeof FileReader==='function')return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(new Blob([String(r.result).split(',')[1]]));r.onerror=()=>reject(r.error);r.readAsDataURL(blob)});
+  return new Blob([safe64(new Uint8Array(await blob.arrayBuffer()))]);
+}
+
+function safePrepare(input) {
+  const d = JSON.parse(JSON.stringify(input));
+  if (!d || ![2,3].includes(d.v)) throw new Error('Неизвестный формат кабинета');
+  for (const key of ['students','groups','lessons','payments','materials','routes']) {
+    if (!Array.isArray(d[key])) throw new Error('В копии нет раздела: ' + key);
+    const ids = new Set();
+    for (const x of d[key]) {
+      if (!x || typeof x !== 'object' || typeof x.id !== 'string' || !x.id || ids.has(x.id) || ['__proto__','constructor','prototype'].includes(x.id)) throw new Error('Повреждены идентификаторы: ' + key);
+      ids.add(x.id);
+    }
+  }
+  if (!d.topicBank || typeof d.topicBank !== 'object' || Array.isArray(d.topicBank) || typeof d.tutor !== 'string') throw new Error('Нет методики или настроек');
+  for (const topics of Object.values(d.topicBank)) if (!Array.isArray(topics) || topics.some(t=>!t || typeof t.title !== 'string')) throw new Error('Повреждён список тем');
+  for (const g of d.groups) if (!Array.isArray(g.memberIds)) throw new Error('Повреждён состав группы');
+  // Missing historical material references are retained, not treated as a fatal error.
+  delete d[SAFE_META];
+  return migrate(d);
+}
+function safeRefs(d) {
+  const refs = [];
+  const visit = x => { if (!x || typeof x !== 'object') return; if (typeof x.fileId === 'string' && x.fileId) refs.push(x); for (const [k,v] of Object.entries(x)) if (k !== SAFE_META && v && typeof v === 'object') visit(v); };
+  visit(d); return refs;
+}
+async function safeDigest(bytes) {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function safe64(bytes) { let s=''; for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode(...bytes.subarray(i,i+32768)); return btoa(s); }
+function safeBytes(s) { const raw=atob(s); return Uint8Array.from(raw,c=>c.charCodeAt(0)); }
+async function safeBundle(state, strict = true) {
+  const d = safePrepare(state), files = [], missing = [];
+  for (const id of new Set(safeRefs(d).map(x=>x.fileId))) {
+    const blob = await getFile(id);
+    if (!blob) { missing.push(id); continue; }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    files.push({id,type:blob.type,size:bytes.length,sha256:await safeDigest(bytes),base64:safe64(bytes)});
+  }
+  if (strict && missing.length) throw new Error('Не найдены вложения: ' + missing.length + '. Прежняя копия не перезаписана. Откройте «Материалы».');
+  d[SAFE_META] = {format:'svetlana-full-v1',at:new Date().toISOString(),complete:!missing.length,missing,files,stateSha256:await safeDigest(new TextEncoder().encode(JSON.stringify(d)))};
+  return d;
+}
+async function safeBackupBlob(state,strict=true) {
+  const d=safePrepare(state),json=JSON.stringify(d);
+  const meta={format:'svetlana-full-v1',at:new Date().toISOString(),complete:true,missing:[],stateSha256:await safeDigest(new TextEncoder().encode(json))};
+  const parts=[];
+  let first=true;const needed=new Set(safeRefs(d).map(x=>x.fileId));
+  for(const id of safeFilePartsCache.keys())if(!needed.has(id))safeFilePartsCache.delete(id);
+  for(const id of needed){
+    const file=await getFile(id);
+    if(!file){if(strict)throw new Error('Не найдено вложение. Прежняя копия не перезаписана. Откройте «Материалы».');meta.complete=false;meta.missing.push(id);continue;}
+    let cached=safeFilePartsCache.get(id);
+    if(!cached||cached.size!==file.size||cached.type!==file.type){
+      cached={size:file.size,type:file.type,sha256:await safeDigest(await file.arrayBuffer()),parts:[]};
+      for(let i=0;i<file.size;i+=3*1024*1024)cached.parts.push(await safeEncodeBlob(file.slice(i,i+3*1024*1024)));
+      safeFilePartsCache.set(id,cached);
+    }
+    const info={id,type:file.type,size:file.size,sha256:cached.sha256};
+    if(!first)parts.push(',');first=false;
+    parts.push(JSON.stringify(info).slice(0,-1),',"base64":"');
+    // Divisible by three: base64 chunks concatenate without intermediate padding.
+    parts.push(...cached.parts);
+    parts.push('"}');
+  }
+  return new Blob([json.slice(0,-1),',"'+SAFE_META+'":',JSON.stringify(meta).slice(0,-1),',"files":[',...parts,']}}'],{type:'application/json'});
+}
+async function safeSameFile(a,b){
+  if(a.size!==b.size)return false;
+  for(let i=0;i<a.size;i+=4*1024*1024){if(await safeDigest(await a.slice(i,i+4*1024*1024).arrayBuffer())!==await safeDigest(await b.slice(i,i+4*1024*1024).arrayBuffer()))return false;}
+  return true;
+}
+async function safeDecode(text) {
+  const original = JSON.parse(text), meta = original && original[SAFE_META];
+  if (meta) {
+    if (meta.format !== 'svetlana-full-v1' || !Array.isArray(meta.files)) throw new Error('Неизвестный формат полной копии');
+    const raw = {...original}; delete raw[SAFE_META];
+    if (await safeDigest(new TextEncoder().encode(JSON.stringify(raw))) !== meta.stateSha256) throw new Error('Контрольная сумма записей не совпадает');
+  }
+  const data = safePrepare(original), files = [], ids = new Set();
+  for (const f of meta?.files || []) {
+    if (!f || typeof f.id !== 'string' || ids.has(f.id) || typeof f.base64 !== 'string') throw new Error('Повреждён список вложений');
+    const bytes = safeBytes(f.base64);
+    if (bytes.length !== f.size || await safeDigest(bytes) !== f.sha256) throw new Error('Повреждено вложение');
+    ids.add(f.id); files.push({id:f.id,blob:new Blob([bytes],{type:f.type||'application/octet-stream'})});
+  }
+  if (meta?.complete && safeRefs(data).some(x=>!ids.has(x.fileId))) throw new Error('Полная копия не содержит всех вложений');
+  return {data,files,full:!!meta?.complete};
+}
+function safeTx(mode, fn) {
+  return new Promise((resolve,reject)=>{
+    const rq=indexedDB.open(SAFE_DB,1);
+    rq.onupgradeneeded=()=>rq.result.createObjectStore('records');
+    rq.onerror=()=>reject(rq.error);
+    rq.onsuccess=()=>{const db=rq.result;try {const tx=db.transaction('records',mode);let result;const r=fn(tx.objectStore('records')); if(r)r.onsuccess=()=>{result=r.result};tx.oncomplete=()=>{db.close();resolve(result)};tx.onabort=tx.onerror=()=>{db.close();reject(tx.error||new Error('Не удалось сохранить защитную копию'))};}catch(e){db.close();reject(e)}};
+  });
+}
+function safeHistory(text, reason) {
+  const work=safeHistoryQueue.catch(()=>{}).then(async()=>{
+    const list=await safeTx('readonly',s=>s.get('history'))||[];
+    if(list[0]?.text===text)return;
+    list.unshift({at:new Date().toISOString(),reason,...(text instanceof Blob?{file:text}:{text})});
+    await safeTx('readwrite',s=>s.put(list.slice(0,3),'history'));
+  }); safeHistoryQueue=work; return work;
+}
+async function safeWriteFiles(files) {
+  if(!files.length)return;
+  const db=await openFileDb();
+  await new Promise((resolve,reject)=>{const tx=db.transaction(FILE_STORE,'readwrite');tx.oncomplete=resolve;tx.onabort=tx.onerror=()=>reject(tx.error||new Error('Не записаны вложения'));const st=tx.objectStore(FILE_STORE);for(const f of files)st.put(f.blob,f.id)});
+}
+async function safeInstall(bundle) {
+  if(readOnlyTab || safeImporting || safeBusy)throw new Error('Дождитесь сохранения и используйте рабочее окно кабинета');
+  safeImporting=true;
+  try {
+    const before=JSON.stringify(S), beforeRaw=localStorage.getItem(KEY), data=safePrepare(bundle.data);
+    const source = !dataUnreadable ? await safeBackupBlob(S,false) : beforeRaw;
+    if(source)await safeHistory(source,'Перед восстановлением');
+    const remap=new Map(), files=[];
+    for(const f of bundle.files){const id='restore-'+crypto.randomUUID();remap.set(f.id,id);files.push({id,blob:f.blob});}
+    for(const ref of safeRefs(data))if(remap.has(ref.fileId))ref.fileId=remap.get(ref.fileId);
+    await safeWriteFiles(files);
+    if(readOnlyTab || JSON.stringify(S)!==before || localStorage.getItem(KEY)!==beforeRaw)throw new Error('Кабинет изменился во время восстановления. Повторите загрузку.');
+    if(beforeRaw)localStorage.setItem('svetlana-safety-before-import',beforeRaw);
+    const text=JSON.stringify(data);localStorage.setItem(KEY,text);safeKnownRaw=text;
+    const previous=S;S=data;dataUnreadable=false;storageBroken=false;lastSnap=snapshot();
+    hist=[{label:'До восстановления',at:nowHM(),snap:JSON.stringify(previous)}];redo=[];
+    shadowSave();bumpChanges();safeLastSnapshot=null;
+    let missing=0;for(const id of new Set(safeRefs(S).map(x=>x.fileId)))if(!await getFile(id))missing++;
+    safeStatus=missing?'Записи восстановлены; отсутствуют вложения: '+missing:'Копия восстановлена';
+    toast(safeStatus);render();refreshBar();
+  } finally {safeImporting=false;autoSaveSoon();}
+}
+async function safeImportFile(file) {
+  try {
+    const decoded=await safeDecode(await file.text());
+    ask('Восстановить кабинет из копии?',
+      'Ученики: '+decoded.data.students.length+'. Занятия: '+decoded.data.lessons.length+'. Оплаты: '+decoded.data.payments.length+'.\n'+(decoded.full?'Копия включает вложения.':'Это копия записей; наличие вложений проверим в браузере.')+'\nТекущее состояние будет сохранено отдельно перед заменой.',
+      'Восстановить',()=>safeInstall(decoded).catch(e=>toast(e.message)),true);
+  }catch(e){toast('Копия не загружена: '+e.message)}
+}
+async function safeRecoveryList() {
+  const dlg=$('#pickDlg');dlg.textContent='';const body=el('div',{class:'dlg-b'});
+  dlg.append(el('div',{class:'dlg-h'},el('h2',{},'Восстановление')),body,el('div',{class:'dlg-f'},el('button',{class:'btn',onclick:()=>dlg.close()},'Закрыть')));dlg.showModal();
+  const input=el('input',{type:'file',accept:'.json',style:'display:none',onchange:e=>{const f=e.target.files[0];if(f){dlg.close();safeImportFile(f)}}});
+  body.append(input,el('button',{class:'btn',onclick:()=>input.click()},'Загрузить копию из файла'));
+  const candidates=[];
+  for(const key of [KEY,KEY+'-shadow','svetlana-safety-before-save','svetlana-safety-before-import','svetlana-rollback-20260906:'+KEY,'svetlana-rollback-20260906:'+KEY+'-shadow']){
+    try{const raw=localStorage.getItem(key);if(raw){const obj=JSON.parse(raw);candidates.push({reason:key.includes('shadow')?'Запасная запись браузера':'Сохранённая запись браузера',text:obj.d?JSON.stringify(obj.d):raw})}}catch{}
+  }
+  try{candidates.push(...await safeTx('readonly',s=>s.get('history'))||[])}catch(e){body.append(el('p',{},'Не удалось прочитать историю копий: '+e.message))}
+  const seen=new Set();for(const item of candidates){
+    if(item.file){body.append(el('div',{class:'card'},el('p',{},item.reason+' · '+item.at+' · '+fmtSize(item.file.size)),el('button',{class:'btn',onclick:()=>{dlg.close();safeImportFile(item.file)}},'Выбрать копию')));continue;}
+    if(seen.has(item.text))continue;seen.add(item.text);try{const d=JSON.parse(item.text);safePrepare(d);body.append(el('div',{class:'card'},el('p',{},item.reason+' · '+(item.at||d.updatedAt||'без даты')+' · '+d.students.length+' учеников, '+d.lessons.length+' занятий'),el('button',{class:'btn',onclick:()=>{dlg.close();safeImportFile(new Blob([item.text]))}},'Выбрать копию')))}catch{}
+  }
+  if(!seen.size)body.append(el('p',{},'В браузере не найдены копии. Можно загрузить файл из OneDrive.'));
+}
+function safeSummary() {
+  return (autoHandle?'Файл: '+autoHandle.name+'. ':'')+safeStatus+(safeLastAt?' Последняя проверенная запись: '+new Date(safeLastAt).toLocaleString('ru-RU')+'.':'')+' Отправку в облако выполняет OneDrive; кабинет проверяет запись файла, но не доставку в облако.';
+}
+function safeNotice() { safeError='';if(typeof cur!=='undefined'&&cur==='help')render();refreshBar(); }
+async function safeRestoreAuto() {
+  if(!canAuto()){safeStatus='Автосохранение в файл недоступно в этом браузере';safeNotice();return;}
+  try {
+    const h=await autoTx('readonly',s=>s.get('file'));
+    if(!h){safeStatus='Файл автосохранения не выбран';safeNotice();return;}
+    autoHandle=h;autoOn=true;
+    const p=await h.queryPermission({mode:'readwrite'});
+    if(p!=='granted'){autoFailed=true;safeStatus='Нужно разрешить запись в ранее выбранный файл';safeNotice();return;}
+    safeStatus='Доступ к прежнему файлу подтверждён; готовим полную копию';safeNotice();
+    await autoSaveNow(false);
+  }catch(e){autoFailed=true;safeStatus='Не удалось прочитать настройку автосохранения: '+e.message;safeNotice();}
+}
+
+async function safeWriteHandle(handle,text,before) {
+  // Keep the last on-disk version before touching the OneDrive file.
+  const existing=await handle.getFile();
+  if(existing.size) {
+    await safeHistory(existing,'Предыдущая копия файла');
+    const now=JSON.parse(before);
+    if(!now.students.length&&!now.lessons.length)throw new Error('Пустой кабинет не заменит существующий файл');
+    const prefix=await existing.slice(0,4*1024*1024).text(),at=prefix.indexOf(',"'+SAFE_META+'":');
+    let old;
+    try{old=JSON.parse(at>=0?prefix.slice(0,at)+'}':prefix);safePrepare(old)}
+    catch(e){throw new Error('Существующий файл не удалось проверить. Он не перезаписан; выберите отдельный файл копии.');}
+    if(Date.parse(old.updatedAt)>Date.parse(now.updatedAt))throw new Error('В файле есть более новая копия. Откройте «История и восстановление», чтобы выбрать её.');
+  }
+  if(readOnlyTab||dataUnreadable)throw new Error('Окно больше не имеет права записи');
+  const stream=await handle.createWritable();
+  try{await stream.write(text);if(readOnlyTab||dataUnreadable)throw new Error('Рабочее окно изменилось');await stream.close();}
+  catch(e){try{await stream.abort()}catch{}throw e;}
+  const saved=await handle.getFile();
+  if(!await safeSameFile(saved,text instanceof Blob?text:new Blob([text])))throw new Error('Проверка записанного файла не пройдена. Предыдущая копия сохранена в истории.');
+}
+function safeComplete(before,changes,isAuto=false) {
+  safeLastAt=new Date().toISOString();
+  if(snapshot()===before){if(isAuto)safeLastSnapshot=before;if(changesSince()===changes)resetChanges();}
+  else safePending=true;
+  try{localStorage.setItem('tochka-backup',iso(new Date()))}catch{}
+  saveLamp('ok','копия проверена '+nowHM());
+}
+function persist(quiet) {
+  if(safeBooting||readOnlyTab||dataUnreadable||safeImporting){if(!quiet)render();return;}
+  try{
+    const current=localStorage.getItem(KEY);
+    if(current!==safeKnownRaw){readOnlyTab=true;safeStatus='Данные изменены в другом окне. Откройте рабочее окно.';refreshBar();return;}
+    safePrepare(S);
+    S.updatedAt=new Date().toISOString();const next=JSON.stringify(S);
+    if(current&&current!==next)localStorage.setItem('svetlana-safety-before-save',current);
+    localStorage.setItem(KEY,next);safeKnownRaw=next;storageBroken=false;shadowSave();saveLamp('ok','в браузере '+nowHM());
+    if(current!==next)autoSaveSoon();
+  }catch(e){storageBroken=true;safeStatus='Не удалось сохранить в браузере: '+e.message;saveLamp('bad','НЕ СОХРАНЕНО');refreshBar();}
+  if(!quiet)render();
+}
+function load() {
+  dataUnreadable=false;
+  try {
+    const raw=localStorage.getItem(KEY),shadow=localStorage.getItem(KEY+'-shadow');safeKnownRaw=raw;
+    for(const [k,v]of [[KEY,raw],[KEY+'-shadow',shadow]])if(v!==null&&!localStorage.getItem('svetlana-rollback-20260906:'+k))localStorage.setItem('svetlana-rollback-20260906:'+k,v);
+    if(raw)return safePrepare(JSON.parse(raw));
+    if(shadow)return safePrepare(JSON.parse(shadow).d);
+  }catch(e){safeStatus='Запись не прочитана: '+e.message;}
+  dataUnreadable=true;return seed();
+}
+function offerRecovery(){if(dataUnreadable)safeRecoveryList();}
+function shadowSave(){
+  if(dataUnreadable||readOnlyTab||storageBroken||safeImporting)return;
+  try{const raw=localStorage.getItem(KEY);if(raw!==JSON.stringify(S))return;localStorage.setItem(KEY+'-shadow',JSON.stringify({at:new Date().toISOString(),d:S}));}catch{}
+}
+// An unrelated tab changing the shared legacy record must never be overwritten.
+window.addEventListener('storage',e=>{if(e.key===KEY && e.newValue!==safeKnownRaw){readOnlyTab=true;refreshBar();}});
+window.addEventListener('beforeunload',e=>{
+  if(safeBusy||safeImporting||(autoOn&&(autoFailed||safeLastSnapshot!==snapshot()))){e.preventDefault();e.returnValue='';}
+});
+
 dropOldDrafts();
 startTick();
 S = load();
@@ -6611,10 +6810,10 @@ applyCalm();
 render();
 liveTilt();
 setTimeout(() => startTour(false), 700);
-persist(true);
-shadowSave();
+safeBooting=false;
 refreshBar();
 setTimeout(offerRecovery, 60);
+safeRestoreAuto();
 })();
 </script>
 <script>
