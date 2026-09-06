@@ -2,7 +2,7 @@
    посреди занятия. Поэтому страница и значки хранятся в браузере.
    Саму страницу берём сначала из сети: так обновления видны сразу,
    а копия из памяти выручает только когда сети нет. */
-const CACHE = 'svetlana-safety-20260906-1';
+const CACHE = 'svetlana-homework-20260906-1';
 const CORE = ['./', './index.html', './icon192.png', './icon512.png', './iconmaskable.png', './manifest.webmanifest'];
 
 self.addEventListener('install', e => {

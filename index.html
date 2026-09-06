@@ -851,7 +851,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '6 сентября 2026 · сохранение 1.1';
+const VERSION = '6 сентября 2026 · домашние задания 1.2';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -1129,13 +1129,14 @@ const MARK_LABEL = {'был': 'присутствовал', 'пропуск': '�
 const HW_LABEL = {'сделана': 'сделана', 'ошибки': 'сделана с ошибками', 'частично': 'сделана частично', 'нет': 'не сделана'};
 
 /* Прошлое занятие того же ученика или группы, на котором что-то задали */
-function prevHomework(l) {
+function prevHomework(l, sid) {
   const key = (x) => x.date + ' ' + x.time;
   const mine = S.lessons
     .filter(x => x.id !== l.id && x.ownerType === l.ownerType && x.ownerId === l.ownerId)
-    .filter(x => key(x) < key(l))
+    .filter(x => key(x) < key(l) && Object.values(x.marks || {}).some(m => m.s === 'был'))
+    .filter(x => !sid || x.marks?.[sid]?.s === 'был')
     .sort((a, b) => key(a) < key(b) ? 1 : -1);
-  return mine.find(x => (x.homework || '').trim()) || null;
+  return mine.find(x => (sid ? homeworkFor(x, sid) : x.homework || Object.values(x.per || {}).map(p => p.homework || '').join('')).trim()) || null;
 }
 
 /* Кто участвует в занятии. Как только занятие отмечено, его состав и цены
@@ -1330,10 +1331,10 @@ const topic = id => allTopics().find(t => t.id === id) || null;
 const routeOf = (type, id) => S.routes.find(r => r.ownerType === type && r.ownerId === id) || null;
 /* Темы, которые ученик или группа уже прошли: по отмеченным занятиям.
    Маршрутов как шага больше нет — тема выбирается в карточке занятия. */
-function passedTopics(type, id) {
+function passedTopics(type, id, sid) {
   const seen = new Set();
   return S.lessons
-    .filter(l => l.ownerType === type && l.ownerId === id && l.topicId && isMarked(l))
+    .filter(l => l.ownerType === type && l.ownerId === id && l.topicId && (sid ? l.marks?.[sid]?.s === 'был' : Object.values(l.marks || {}).some(m => m.s === 'был')))
     .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)
     .map(l => l.topicId).filter(t => !seen.has(t) && seen.add(t)).map(t => topic(t)).filter(Boolean);
 }
@@ -2433,7 +2434,7 @@ function viewPersonCard() {
      репетитор выбирает в его карточке из списка по классам. */
   const pType = (!isG && o.type === 'группа') ? 'group' : (isG ? 'group' : 'student');
   const pId = (!isG && o.type === 'группа') ? o.groupId : id;
-  const passedList = passedTopics(pType, pId);
+  const passedList = passedTopics(pType, pId, isG ? null : id);
   const nextList = upcomingTopics(pType, pId, 3);
   const routeCard = el('div', {class:'card'},
     el('div', {class:'row', style:'justify-content:space-between; margin-bottom:14px'},
@@ -3614,10 +3615,10 @@ function reportBlocks(st, month) {
     ['Состоялось занятий', attended.length],
     ['Пропущено', missed]];
   if (moved) short.push(['Перенесено', moved]);
-  const hwDone = mine.filter(l => l.hwCheck && l.hwCheck.s === 'сделана').length;
-  const hwErr = mine.filter(l => l.hwCheck && l.hwCheck.s === 'ошибки').length;
-  const hwPart = mine.filter(l => l.hwCheck && l.hwCheck.s === 'частично').length;
-  const hwNo = mine.filter(l => l.hwCheck && l.hwCheck.s === 'нет').length;
+  const hwDone = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'сделана').length;
+  const hwErr = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'ошибки').length;
+  const hwPart = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'частично').length;
+  const hwNo = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'нет').length;
   if (hwDone + hwErr + hwPart + hwNo) short.push(['Домашняя работа',
     [hwDone ? `сделана ${hwDone}` : '', hwErr ? `с ошибками ${hwErr}` : '', hwPart ? `частично ${hwPart}` : '', hwNo ? `не сделана ${hwNo}` : ''].filter(Boolean).join(', ')]);
   short.push(['Учебных часов', hours]);
@@ -3644,8 +3645,8 @@ function reportBlocks(st, month) {
     ...mine.map(l => {
       const t = l.topicId ? topic(l.topicId) : null;
       const m = markOf(l, st.id);
-      const hw = l.hwCheck && l.hwCheck.s
-        ? `Домашняя работа: ${HW_LABEL[l.hwCheck.s]}${l.hwCheck.note ? ' — ' + l.hwCheck.note : ''}. `
+      const hw = homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s
+        ? `Домашняя работа: ${HW_LABEL[homeworkCheckFor(l, st.id).s]}${homeworkCheckFor(l, st.id).note ? ' — ' + homeworkCheckFor(l, st.id).note : ''}. `
         : '';
       const c = m.s === 'был' ? lessonCounts(l, st.id) : null;
       return [fmtDate(l.date) + (c ? ` · ${c.n}-е занятие` : '') + (m.s !== 'был' ? ` (${MARK_LABEL[m.s] || m.s}${m.s === 'пропуск' && m.reason ? ': ' + m.reason : ''})` : ''),
@@ -4019,7 +4020,7 @@ function openLessonCard(L, isNew) {
   let topicCls = null;
   const passedIds = () => {
     const [ot, oid] = ownerSel.value.split(':');
-    return new Set(S.lessons.filter(l => isMarked(l) && l.ownerType === ot && l.ownerId === oid && l.id !== draft.id).map(l => l.topicId));
+    return new Set(S.lessons.filter(l => Object.values(l.marks || {}).some(m => m.s === 'был') && l.ownerType === ot && l.ownerId === oid && l.id !== draft.id).map(l => l.topicId));
   };
   function topicLabel() {
     const t = draft.topicId ? topic(draft.topicId) : null;
@@ -4130,6 +4131,8 @@ function openLessonCard(L, isNew) {
   /* Домашняя работа с прошлого урока: что было задано, сделал ли ученик
      и что не получилось. Спрашивают об этом в начале занятия, поэтому
      блок стоит выше «Результата». */
+  const hwChecks = JSON.parse(JSON.stringify(draft.hwChecks || {}));
+  const solution = JSON.parse(JSON.stringify(draft.hwSolution || {}));
   const hwCheck = { s: (draft.hwCheck && draft.hwCheck.s) || null, note: (draft.hwCheck && draft.hwCheck.note) || '' };
   const hwNoteIn = el('textarea', {style:'min-height:56px', placeholder:'Что не получилось, какие ошибки разобрали'});
   hwNoteIn.value = hwCheck.note;
@@ -4160,6 +4163,9 @@ function openLessonCard(L, isNew) {
        «Частично» — часть заданий не сделана. В обоих случаях нужно пояснение. */
     if (hwCheck.s && hwCheck.s !== 'сделана') hwBox.append(el('div', {style:'margin-top:10px'},
       bigField(hwCheck.s === 'ошибки' ? 'Какие ошибки' : 'Что не получилось', hwNoteIn)));
+    hwPills.style.display = ot === 'group' ? 'none' : '';
+    if (ot === 'group') { hwPrevLine.textContent = 'Прошлое ДЗ и проверка отдельно по ученикам — ниже.'; hwBox.append(el('div', {class:'meta',text:hwCheck.s ? 'Старая общая отметка группы: '+HW_LABEL[hwCheck.s]+(hwCheck.note ? ' — '+hwCheck.note : '')+'. Личные результаты заполняются отдельно.' : 'Личные результаты заполняются отдельно.'})); }
+    if (prev && ot !== 'group') hwBox.append(homeworkSolutionView(prev.hwSolution));
     hwBox.append(el('div', {class:'meta', style:'font-size:12px; margin-top:8px'},
       'Заполняется здесь — руками или голосом; рассказ о занятии сюда не попадает. Попадёт в отчёт родителям рядом с этим занятием.'));
   }
@@ -4243,7 +4249,7 @@ function openLessonCard(L, isNew) {
   function renderPer() {
     const [ot, oid] = ownerSel.value.split(':');
     const people = participants({...draft, ownerType: ot, ownerId: oid});
-    if (ot !== 'group' || people.length < 2) { perBox.style.display = 'none'; perBox.textContent = ''; return; }
+    if (ot !== 'group' || people.length < 1) { perBox.style.display = 'none'; perBox.textContent = ''; return; }
     perBox.style.display = '';
     perBox.textContent = '';
     perBox.append(
@@ -4259,10 +4265,19 @@ function openLessonCard(L, isNew) {
       const hTa = el('textarea', {style:'min-height:48px', placeholder:'Своё задание — если отличается от общего'});
       hTa.value = cur.homework || '';
       hTa.addEventListener('input', () => { cur.homework = hTa.value; });
+      const check = hwChecks[st.id] || (hwChecks[st.id] = {s:null,note:''});
+      const checkSel = el('select', {onchange:e => check.s=e.target.value || null}, el('option',{value:''},'Не проверено'), ...Object.entries(HW_LABEL).map(([v,label])=>el('option',{value:v,selected:check.s===v},label)));
+      const errors = el('textarea',{placeholder:'Номер задания, ошибка ученика, что нужно повторить',oninput:e=>check.note=e.target.value}); errors.value=check.note || '';
+      const prev = prevHomework({...draft,ownerType:ot,ownerId:oid,date:dateIn.value,time:timeIn.value},st.id);
+      cur.hwSolution = cur.hwSolution || {};
       perBox.append(el('div', {style:'padding:10px 0; border-top:1px solid var(--line-soft)'},
         el('div', {class:'name', style:'margin-bottom:6px', text: st.name}),
         bigField('Что получилось', rTa),
-        el('div', {style:'margin-top:8px'}, bigField('Домашнее задание', hTa))));
+        el('div', {style:'margin-top:8px'}, bigField('Домашнее задание', hTa)),
+        homeworkSolutionEditor(cur.hwSolution),
+        el('div',{text:prev ? 'Проверяем: '+homeworkFor(prev,st.id) : 'Ранее выданного ДЗ нет'}),
+        prev ? homeworkSolutionView(homeworkSolutionFor(prev,st.id)) : null,
+        bigField('Проверка прошлого ДЗ',checkSel),bigField('Ошибки по заданиям',errors)));
     }
   }
 
@@ -4466,7 +4481,7 @@ function openLessonCard(L, isNew) {
       warn),
     afterBox,
     hwBox,
-    bigField('Домашнее задание на следующий раз', hwIn),
+    bigField('Домашнее задание на следующий раз', hwIn), homeworkSolutionEditor(solution),
     bigField('Результат', resIn),
     perBox,
     more,
@@ -4480,6 +4495,9 @@ function openLessonCard(L, isNew) {
   renderHw();
   ownerSel.addEventListener('change', renderHw);
   dateIn.addEventListener('change', renderHw);
+  dateIn.addEventListener('change', renderPer);
+  timeIn.addEventListener('change', renderHw);
+  timeIn.addEventListener('change', renderPer);
 
   const draftNoteBox = el('div');
   const lessonDraft = draftAttach('lesson:' + draft.id,
@@ -4491,7 +4509,7 @@ function openLessonCard(L, isNew) {
   const snapForm = () => JSON.stringify([
     ownerSel.value, topicSel.value, dateIn.value, timeIn.value, durSel.value,
     planIn.value, noteIn.value, resIn.value, hwIn.value, tellIn.value, restIn.value,
-    hwCheck.s || '', hwNoteIn.value, JSON.stringify(marks)
+    hwCheck.s || '', hwNoteIn.value, JSON.stringify(marks), JSON.stringify(solution), JSON.stringify(hwChecks), JSON.stringify(perData)
   ]);
   let formWas = '';
   const dirty = () => formWas && snapForm() !== formWas;
@@ -4550,6 +4568,7 @@ function openLessonCard(L, isNew) {
     /* Если диктовка ещё идёт — останавливаем, чтобы последняя фраза
        успела лечь в поле, а не потерялась вместе с закрытием окна. */
     micStop(true);
+    if (homeworkUploads) { toast('Дождитесь загрузки решения PDF'); return; }
     saving = true;
     const clash = overlaps(dateIn.value, timeIn.value, +durSel.value, draft.id);
     if (clash) { warn.textContent = `Не сохранить: время занято (${ownerName(clash)}).`; return; }
@@ -4563,7 +4582,7 @@ function openLessonCard(L, isNew) {
       marks: Object.fromEntries(Object.entries(marks)
         .filter(([, m]) => m && m.s)
         .map(([sid, m]) => [sid, m.s === 'пропуск' ? m : {s: m.s, ch: m.ch}])),
-      result: resIn.value.trim(), homework: hwIn.value.trim(),
+      result: resIn.value.trim(), homework: hwIn.value.trim(), hwSolution: solution, hwChecks,
       /* Надиктованный рассказ хранится как есть: даже если разобрать его
          не удалось, слова репетитора не пропадают. */
       tell: tellIn.value.trim(),
@@ -4571,11 +4590,11 @@ function openLessonCard(L, isNew) {
       rest: restIn.value.trim(),
       /* Личные записи участников группы — только непустые */
       per: Object.fromEntries(Object.entries(perData)
-        .map(([sid, v]) => [sid, {result: (v.result || '').trim(), homework: (v.homework || '').trim()}])
-        .filter(([, v]) => v.result || v.homework)),
+        .map(([sid, v]) => [sid, {result: (v.result || '').trim(), homework: (v.homework || '').trim(), hwSolution:v.hwSolution}])
+        .filter(([, v]) => v.result || v.homework || v.hwSolution?.text || v.hwSolution?.fileId)),
       auto: draft.auto || false
     };
-    data.hwCheck = hwCheck.s ? { s: hwCheck.s, note: hwCheck.s === 'сделана' ? '' : hwNoteIn.value.trim() } : null;
+    data.hwCheck = ot === 'group' ? (draft.hwCheck || null) : hwCheck.s ? { s: hwCheck.s, note: hwCheck.s === 'сделана' ? '' : hwNoteIn.value.trim() } : null;
     /* Если занятие переписали на другого ученика или группу — прежние
        цена и состав к нему больше не относятся. */
     const sameOwner = ot === draft.ownerType && oid === draft.ownerId;
@@ -6800,6 +6819,41 @@ window.addEventListener('storage',e=>{if(e.key===KEY && e.newValue!==safeKnownRa
 window.addEventListener('beforeunload',e=>{
   if(safeBusy||safeImporting||(autoOn&&(autoFailed||safeLastSnapshot!==snapshot()))){e.preventDefault();e.returnValue='';}
 });
+
+let homeworkUploads = 0;
+function homeworkSolutionFor(l, sid) {
+  const personal = l.per?.[sid];
+  // A different assignment must never display the answer to the shared one.
+  return personal?.homework ? personal.hwSolution : l.hwSolution;
+}
+function homeworkCheckFor(l, sid) {
+  // Legacy group checks remain stored, but cannot describe an individual child.
+  return l.hwChecks?.[sid] || (l.ownerType === 'student' ? l.hwCheck : null);
+}
+function homeworkSolutionView(solution) {
+  if (!solution || (!solution.text && !solution.fileId)) return el('div',{class:'meta',text:'Решение к этому ДЗ пока не сохранено.'});
+  return el('details',{}, el('summary',{text:'Решение ДЗ'}),
+    solution.text ? el('div',{style:'white-space:pre-wrap;margin:12px 0',text:solution.text}) : null,
+    solution.fileId ? el('button',{type:'button',class:'btn',onclick:()=>openMaterialFile(solution)},'Открыть PDF решения') : null);
+}
+function homeworkSolutionEditor(solution) {
+  const text = el('textarea',{placeholder:'Учебник, страницы, номера заданий; решения и ответы',oninput:e=>solution.text=e.target.value});
+  text.value=solution.text || '';
+  const status=el('div',{class:'meta',text:solution.fileName || 'PDF не прикреплён'});
+  const input=el('input',{type:'file',accept:'application/pdf,.pdf',onchange:async e=>{
+    const f=e.target.files?.[0]; if(!f)return;
+    if(f.size>25*1024*1024){toast('Выберите PDF до 25 МБ');return;}
+    homeworkUploads++;input.disabled=true;status.textContent='Сохраняем PDF…';
+    try {
+      if(!((await f.slice(0,5).text()).startsWith('%PDF-')))throw Error('Выбранный файл не является PDF');
+      const fileId='hw-'+crypto.randomUUID();await putFile(fileId,f);
+      Object.assign(solution,{fileId,fileName:f.name,title:'Решение ДЗ',size:f.size});status.textContent=f.name;
+    }catch(err){status.textContent='PDF не добавлен: '+err.message;}
+    finally{homeworkUploads--;input.disabled=false;input.value='';}
+  }});
+  return el('details',{},el('summary',{text:'Подготовить решение этого ДЗ'}),
+    el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,status);
+}
 
 dropOldDrafts();
 startTick();

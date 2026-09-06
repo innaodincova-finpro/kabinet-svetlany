@@ -84,7 +84,7 @@ function autoSaveSoon() {
 # Bootstrap is deferred until every state variable is initialised.
 s=s.replace('dropOldDrafts();\nstartTick();', (root/'source/safety.js').read_text()+'\n'+(root/'source/overrides.js').read_text()+'\ndropOldDrafts();\nstartTick();')
 s=s.replace('persist(true);\nshadowSave();\nrefreshBar();\nsetTimeout(offerRecovery, 60);','safeBooting=false;\nrefreshBar();\nsetTimeout(offerRecovery, 60);\nsafeRestoreAuto();')
-s=s.replace("const VERSION = '31 августа 2026';", "const VERSION = '6 сентября 2026 · сохранение 1.1';")
+s=s.replace("const VERSION = '31 августа 2026';", "const VERSION = '6 сентября 2026 · домашние задания 1.2';")
 s=s.replace("const putFile = (id, blob) => fileTx('readwrite', st => st.put(blob, id));", "const putFile = (id, blob) => { safeFilePartsCache.delete(id); return fileTx('readwrite', st => st.put(blob, id)); };")
 s=s.replace("toast('Файл сохранён');\n    return true;","toast('Скачивание начато');\n    return true;")
 s=s.replace("text: autoOn ? 'Автосохранение включено' : 'Автосохранение выключено'", "text: autoFailed ? 'Автосохранение требует внимания' : autoOn ? 'Автосохранение настроено' : 'Автосохранение не настроено'")
@@ -97,6 +97,7 @@ s=s.replace("put('warn', 'Копия в файл не записалась — �
 s=s.replace("put('stop', 'Данные не читаются — кабинет пока ничего не записывает.'", "put('stop', 'Данные не читаются — кабинет пока ничего не записывает.'")
 s=s.replace("if (!node || !ev) return;", "if (!node || !ev) return;")
 s=s.replace("if (readOnlyTab && document.visibilityState !== 'hidden') takeOver(true);", "if (readOnlyTab && document.visibilityState !== 'hidden' && !document.querySelector('dialog[open]')) takeOver(true);")
+exec((root/'source/homework.py').read_text())
 (root/'site/index.html').write_text(s)
-sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-safety-20260906-1')
+sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1')
 (root/'site/sw.js').write_text(sw)
