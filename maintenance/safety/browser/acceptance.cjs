@@ -27,9 +27,10 @@ const results=[];
 (async()=>{
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
  for(const spec of [{name:'chromium-desktop',engine:chromium,width:1366,height:900},{name:'chromium-mobile-390',engine:chromium,width:390,height:844},{name:'chromium-mobile-320',engine:chromium,width:320,height:740},{name:'webkit-mobile-390',engine:webkit,width:390,height:844}]){
-  let browser,context,page;const errors=[],requests=[];
+  let context,page;const errors=[],requests=[];
   try{
-   browser=await spec.engine.launch({headless:true});context=await browser.newContext({viewport:{width:spec.width,height:spec.height},timezoneId:'UTC'});
+   // Use a fresh disk-backed profile: non-persistent contexts are private mode.
+   context=await spec.engine.launchPersistentContext('',{headless:true,viewport:{width:spec.width,height:spec.height},timezoneId:'UTC'});
    await context.route('**/*',route=>{if(new URL(route.request().url()).origin===origin)return route.continue();requests.push(route.request().url());return route.abort();});
    await context.addInitScript(({state,origin})=>{if(location.origin===origin&&!localStorage.getItem('tochka-resheniya-v2')){localStorage.setItem('tochka-resheniya-v2',JSON.stringify(state));localStorage.setItem('tochka-tour-v1','done');}}, {state:fixture(),origin});
    page=await context.newPage();page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));
@@ -75,7 +76,7 @@ const results=[];
    assert.deepEqual(errors,[],'No browser runtime errors');assert.deepEqual(requests,[],'No external requests');
    results.push({name:spec.name,passed:true,scenarios:['save-reload-personal-text-and-PDF','next-lesson-personal-answer','PDF-canvas-render','separate-checks-and-reports','narrow-form-controls']});console.log('PASS',spec.name);
   }catch(e){results.push({name:spec.name,passed:false,error:e.stack,errors,requests});console.error('FAIL',spec.name,e.message);if(page){await page.screenshot({path:path.join(out,spec.name+'-failure.png')}).catch(()=>{});fs.writeFileSync(path.join(out,spec.name+'-failure.html'),await page.content().catch(()=>''));}}
-  finally{if(browser)await browser.close();}
+  finally{if(context)await context.close();}
  }
  fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({testedCommit:process.env.TESTED_COMMIT||'',results},null,2));
  if(results.some(r=>!r.passed))process.exitCode=1;

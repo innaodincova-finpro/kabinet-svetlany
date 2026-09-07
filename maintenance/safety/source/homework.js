@@ -24,9 +24,7 @@ function homeworkSolutionEditor(solution) {
     homeworkUploads++;input.disabled=true;status.textContent='Сохраняем PDF…';
     try {
       if(!((await f.slice(0,5).text()).startsWith('%PDF-')))throw Error('Выбранный файл не является PDF');
-      // Materialize bytes before the transaction: avoid a temporary File backing path.
-      const storedPdf=new Blob([await f.arrayBuffer()],{type:'application/pdf'});
-      const fileId='hw-'+crypto.randomUUID();await putFile(fileId,storedPdf);
+      const fileId='hw-'+crypto.randomUUID();await putFile(fileId,f);
       Object.assign(solution,{fileId,fileName:f.name,title:'Решение ДЗ',size:f.size});status.textContent=f.name;
     }catch(err){status.textContent='PDF не добавлен: '+err.message;}
     finally{homeworkUploads--;input.disabled=false;input.value='';}
