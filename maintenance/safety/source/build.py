@@ -27,7 +27,7 @@ block('async function backupNow() {','const lastBackup =',"""async function back
 block('function fileTx(mode, fn) {','const putFile =',"""function fileTx(mode, fn) {
   return openFileDb().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(FILE_STORE,mode);let result;const rq=fn(tx.objectStore(FILE_STORE));
-    rq.onsuccess=()=>{result=rq.result};tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||new Error('Ошибка хранения файла'));
+    rq.onsuccess=()=>{result=rq.result};tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||rq.error||new Error('Ошибка хранения файла'));
   }));
 }
 """)
@@ -110,5 +110,5 @@ for old,new in [
  s=s.replace(old,new)
 exec((root/'source/homework.py').read_text())
 (root/'site/index.html').write_text(s)
-sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1').replace('svetlana-homework-20260906-1','svetlana-homework-20260907-2')
+sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1').replace('svetlana-homework-20260906-1','svetlana-homework-20260907-3')
 (root/'site/sw.js').write_text(sw)

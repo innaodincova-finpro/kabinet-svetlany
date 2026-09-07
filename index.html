@@ -1431,7 +1431,7 @@ function openFileDb() {
 function fileTx(mode, fn) {
   return openFileDb().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(FILE_STORE,mode);let result;const rq=fn(tx.objectStore(FILE_STORE));
-    rq.onsuccess=()=>{result=rq.result};tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||new Error('Ошибка хранения файла'));
+    rq.onsuccess=()=>{result=rq.result};tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||rq.error||new Error('Ошибка хранения файла'));
   }));
 }
 
@@ -6846,7 +6846,9 @@ function homeworkSolutionEditor(solution) {
     homeworkUploads++;input.disabled=true;status.textContent='Сохраняем PDF…';
     try {
       if(!((await f.slice(0,5).text()).startsWith('%PDF-')))throw Error('Выбранный файл не является PDF');
-      const fileId='hw-'+crypto.randomUUID();await putFile(fileId,f);
+      // Materialize bytes before the transaction: avoid a temporary File backing path.
+      const storedPdf=new Blob([await f.arrayBuffer()],{type:'application/pdf'});
+      const fileId='hw-'+crypto.randomUUID();await putFile(fileId,storedPdf);
       Object.assign(solution,{fileId,fileName:f.name,title:'Решение ДЗ',size:f.size});status.textContent=f.name;
     }catch(err){status.textContent='PDF не добавлен: '+err.message;}
     finally{homeworkUploads--;input.disabled=false;input.value='';}
