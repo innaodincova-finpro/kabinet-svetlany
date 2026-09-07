@@ -109,6 +109,7 @@ for old,new in [
  if old not in s: raise ValueError('Missing material retention patch: '+old)
  s=s.replace(old,new)
 exec((root/'source/homework.py').read_text())
+exec((root/'source/lesson-integrity.py').read_text())
 (root/'site/index.html').write_text(s)
 sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1').replace('svetlana-homework-20260906-1','svetlana-homework-20260907-3')
 (root/'site/sw.js').write_text(sw)

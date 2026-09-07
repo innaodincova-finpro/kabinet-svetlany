@@ -26,17 +26,18 @@ function safeComplete(before,changes,isAuto=false) {
   saveLamp('ok','копия проверена '+nowHM());
 }
 function persist(quiet) {
-  if(safeBooting||readOnlyTab||dataUnreadable||safeImporting){if(!quiet)render();return;}
+  if(safeBooting||readOnlyTab||dataUnreadable||safeImporting){if(!quiet)render();return false;}
   try{
     const current=localStorage.getItem(KEY);
-    if(current!==safeKnownRaw){readOnlyTab=true;safeStatus='Данные изменены в другом окне. Откройте рабочее окно.';refreshBar();return;}
+    if(current!==safeKnownRaw){readOnlyTab=true;safeStatus='Данные изменены в другом окне. Откройте рабочее окно.';refreshBar();return false;}
     safePrepare(S);
     S.updatedAt=new Date().toISOString();const next=JSON.stringify(S);
     if(current&&current!==next)localStorage.setItem('svetlana-safety-before-save',current);
     localStorage.setItem(KEY,next);safeKnownRaw=next;storageBroken=false;shadowSave();saveLamp('ok','в браузере '+nowHM());
     if(current!==next)autoSaveSoon();
-  }catch(e){storageBroken=true;safeStatus='Не удалось сохранить в браузере: '+e.message;saveLamp('bad','НЕ СОХРАНЕНО');refreshBar();}
+  }catch(e){storageBroken=true;safeStatus='Не удалось сохранить в браузере: '+e.message;saveLamp('bad','НЕ СОХРАНЕНО');refreshBar();return false;}
   if(!quiet)render();
+  return true;
 }
 function load() {
   dataUnreadable=false;

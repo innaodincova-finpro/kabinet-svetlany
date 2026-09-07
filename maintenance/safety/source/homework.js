@@ -17,18 +17,20 @@ function homeworkSolutionView(solution) {
 function homeworkSolutionEditor(solution) {
   const text = el('textarea',{placeholder:'Учебник, страницы, номера заданий; решения и ответы',oninput:e=>solution.text=e.target.value});
   text.value=solution.text || '';
-  const status=el('div',{class:'meta',text:solution.fileName || 'PDF не прикреплён'});
-  const input=el('input',{type:'file',accept:'application/pdf,.pdf',onchange:async e=>{
+  const status=el('div',{class:'meta',text:solution.fileName ? 'Прикреплён: ' + solution.fileName : 'PDF не прикреплён'});
+  const preview=el('button',{type:'button',class:'btn',onclick:()=>openMaterialFile(solution)},'Открыть PDF решения');
+  preview.disabled=!solution.fileId;
+  const input=el('input',{type:'file',style:'display:none',accept:'application/pdf,.pdf',onchange:async e=>{
     const f=e.target.files?.[0]; if(!f)return;
     if(f.size>25*1024*1024){toast('Выберите PDF до 25 МБ');return;}
     homeworkUploads++;input.disabled=true;status.textContent='Сохраняем PDF…';
     try {
       if(!((await f.slice(0,5).text()).startsWith('%PDF-')))throw Error('Выбранный файл не является PDF');
       const fileId='hw-'+crypto.randomUUID();await putFile(fileId,f);
-      Object.assign(solution,{fileId,fileName:f.name,title:'Решение ДЗ',size:f.size});status.textContent=f.name;
+      Object.assign(solution,{fileId,fileName:f.name,title:'Решение ДЗ',size:f.size});status.textContent='Прикреплён: '+f.name;preview.disabled=false;input.dispatchEvent(new Event('input',{bubbles:true}));
     }catch(err){status.textContent='PDF не добавлен: '+err.message;}
     finally{homeworkUploads--;input.disabled=false;input.value='';}
   }});
   return el('details',{},el('summary',{text:'Подготовить решение этого ДЗ'}),
-    el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,status);
+    el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,el('button',{type:'button',class:'btn',onclick:()=>input.click()},'Выбрать PDF'),status,preview);
 }
