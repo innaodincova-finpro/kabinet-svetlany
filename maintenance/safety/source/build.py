@@ -27,7 +27,7 @@ block('async function backupNow() {','const lastBackup =',"""async function back
 block('function fileTx(mode, fn) {','const putFile =',"""function fileTx(mode, fn) {
   return openFileDb().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(FILE_STORE,mode);let result;const rq=fn(tx.objectStore(FILE_STORE));
-    rq.onsuccess=()=>{result=rq.result};tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||new Error('Ошибка хранения файла'));
+    rq.onsuccess=()=>{result=rq.result};tx.oncomplete=()=>resolve(result);tx.onabort=tx.onerror=()=>reject(tx.error||rq.error||new Error('Ошибка хранения файла'));
   }));
 }
 """)
@@ -84,7 +84,7 @@ function autoSaveSoon() {
 # Bootstrap is deferred until every state variable is initialised.
 s=s.replace('dropOldDrafts();\nstartTick();', (root/'source/safety.js').read_text()+'\n'+(root/'source/overrides.js').read_text()+'\ndropOldDrafts();\nstartTick();')
 s=s.replace('persist(true);\nshadowSave();\nrefreshBar();\nsetTimeout(offerRecovery, 60);','safeBooting=false;\nrefreshBar();\nsetTimeout(offerRecovery, 60);\nsafeRestoreAuto();')
-s=s.replace("const VERSION = '31 августа 2026';", "const VERSION = '6 сентября 2026 · сохранение 1.1';")
+s=s.replace("const VERSION = '31 августа 2026';", "const VERSION = '6 сентября 2026 · домашние задания 1.2';")
 s=s.replace("const putFile = (id, blob) => fileTx('readwrite', st => st.put(blob, id));", "const putFile = (id, blob) => { safeFilePartsCache.delete(id); return fileTx('readwrite', st => st.put(blob, id)); };")
 s=s.replace("toast('Файл сохранён');\n    return true;","toast('Скачивание начато');\n    return true;")
 s=s.replace("text: autoOn ? 'Автосохранение включено' : 'Автосохранение выключено'", "text: autoFailed ? 'Автосохранение требует внимания' : autoOn ? 'Автосохранение настроено' : 'Автосохранение не настроено'")
@@ -97,6 +97,18 @@ s=s.replace("put('warn', 'Копия в файл не записалась — �
 s=s.replace("put('stop', 'Данные не читаются — кабинет пока ничего не записывает.'", "put('stop', 'Данные не читаются — кабинет пока ничего не записывает.'")
 s=s.replace("if (!node || !ev) return;", "if (!node || !ev) return;")
 s=s.replace("if (readOnlyTab && document.visibilityState !== 'hidden') takeOver(true);", "if (readOnlyTab && document.visibilityState !== 'hidden' && !document.querySelector('dialog[open]')) takeOver(true);")
+# Material operations are reversible: retain original blobs for undo/history.
+for old,new in [
+ ("if (m.fileId) dropFile(m.fileId).catch(() => {});", "/* Keep the original blob for undo and recovery. */"),
+ ("if (m && m.fileId) dropFile(m.fileId).catch(() => {});", "/* Keep the previous blob for undo and recovery. */"),
+ ("if (m && dropCurrent) { dropFile(m.fileId).catch(() => {});", "if (m && dropCurrent) {"),
+ ("try { fileTx('readwrite', st => st.clear()); } catch (e) {}", "/* Keep blobs: clearing the cabinet can be undone. */"),
+ (", сам файл тоже будет стёрт из браузера", ", файл останется для отмены и восстановления"),
+ ("загруженные файлы удалены из браузера", "загруженные файлы останутся для отмены и восстановления"),
+]:
+ if old not in s: raise ValueError('Missing material retention patch: '+old)
+ s=s.replace(old,new)
+exec((root/'source/homework.py').read_text())
 (root/'site/index.html').write_text(s)
-sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-safety-20260906-1')
+sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1').replace('svetlana-homework-20260906-1','svetlana-homework-20260907-3')
 (root/'site/sw.js').write_text(sw)

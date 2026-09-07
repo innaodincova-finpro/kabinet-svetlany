@@ -17,3 +17,30 @@ jobs:
           node-version: '22'
       - name: Build and check saving and recovery
         run: bash maintenance/safety/check.sh
+  browser-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned browser test runner
+        run: npm install --prefix "$RUNNER_TEMP/svetlana-browser" --no-audit --no-fund --ignore-scripts playwright@1.62.1
+      - name: Install test browsers
+        run: node "$RUNNER_TEMP/svetlana-browser/node_modules/playwright/cli.js" install --with-deps chromium webkit
+      - name: Check synthetic homework scenarios in real browsers
+        env:
+          NODE_PATH: ${{ runner.temp }}/svetlana-browser/node_modules
+          TESTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node maintenance/safety/browser/acceptance.cjs
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: svetlana-browser-acceptance
+          path: maintenance/safety/browser/results/
+          retention-days: 7
