@@ -97,7 +97,18 @@ s=s.replace("put('warn', 'Копия в файл не записалась — �
 s=s.replace("put('stop', 'Данные не читаются — кабинет пока ничего не записывает.'", "put('stop', 'Данные не читаются — кабинет пока ничего не записывает.'")
 s=s.replace("if (!node || !ev) return;", "if (!node || !ev) return;")
 s=s.replace("if (readOnlyTab && document.visibilityState !== 'hidden') takeOver(true);", "if (readOnlyTab && document.visibilityState !== 'hidden' && !document.querySelector('dialog[open]')) takeOver(true);")
+# Material operations are reversible: retain original blobs for undo/history.
+for old,new in [
+ ("if (m.fileId) dropFile(m.fileId).catch(() => {});", "/* Keep the original blob for undo and recovery. */"),
+ ("if (m && m.fileId) dropFile(m.fileId).catch(() => {});", "/* Keep the previous blob for undo and recovery. */"),
+ ("if (m && dropCurrent) { dropFile(m.fileId).catch(() => {});", "if (m && dropCurrent) {"),
+ ("try { fileTx('readwrite', st => st.clear()); } catch (e) {}", "/* Keep blobs: clearing the cabinet can be undone. */"),
+ (", сам файл тоже будет стёрт из браузера", ", файл останется для отмены и восстановления"),
+ ("загруженные файлы удалены из браузера", "загруженные файлы останутся для отмены и восстановления"),
+]:
+ if old not in s: raise ValueError('Missing material retention patch: '+old)
+ s=s.replace(old,new)
 exec((root/'source/homework.py').read_text())
 (root/'site/index.html').write_text(s)
-sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1')
+sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1').replace('svetlana-homework-20260906-1','svetlana-homework-20260907-2')
 (root/'site/sw.js').write_text(sw)

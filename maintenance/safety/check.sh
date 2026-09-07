@@ -12,3 +12,5 @@ cmp index.html maintenance/safety/site/index.html
 cmp sw.js maintenance/safety/site/sw.js
 node maintenance/safety/tests/safety.cjs "${1:-}"
 node maintenance/safety/tests/homework.cjs
+
+node maintenance/safety/tests/materials.cjs

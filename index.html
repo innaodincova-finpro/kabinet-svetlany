@@ -3137,10 +3137,10 @@ function viewMaterials() {
         el('button', {class:'btn btn-ghost btn-sm', onclick:() => editMaterial(m.id)}, 'Изменить'),
         el('button', {class:'btn btn-danger btn-sm', onclick:() => ask(
           'Удалить материал?',
-          `«${m.title}» исчезнет из списка${m.fileId ? ', сам файл тоже будет стёрт из браузера' : ''}. Темы, к которым он прикреплён, останутся.`,
+          `«${m.title}» исчезнет из списка${m.fileId ? ', файл останется для отмены и восстановления' : ''}. Темы, к которым он прикреплён, останутся.`,
           'Удалить',
           () => {
-            if (m.fileId) dropFile(m.fileId).catch(() => {});
+            /* Keep the original blob for undo and recovery. */
             S.materials = S.materials.filter(x => x.id !== m.id);
             allTopics().forEach(t => { const src = S.topicBank[t.cls].find(x => x.id === t.id); if (src) src.materialIds = src.materialIds.filter(i => i !== m.id); });
             save('Удалён материал');
@@ -3213,13 +3213,13 @@ function editMaterial(id) {
     if (f) {
       const fid = uid();
       putFile(fid, f).then(() => {
-        if (m && m.fileId) dropFile(m.fileId).catch(() => {});
+        /* Keep the previous blob for undo and recovery. */
         finish({fileId: fid, fileName: f.name, size: f.size});
         toast('Файл загружен');
       }).catch(() => toast('Браузер не дал сохранить файл — возможно, кончилось место'));
       return;
     }
-    if (m && dropCurrent) { dropFile(m.fileId).catch(() => {}); finish({fileId: null, fileName: '', size: 0}); return; }
+    if (m && dropCurrent) { finish({fileId: null, fileName: '', size: 0}); return; }
     finish(m ? {} : {fileId: null, fileName: '', size: 0});
   }, 'material:' + (id || 'new'));
 }
@@ -3798,9 +3798,9 @@ function viewHelp() {
           el('button', {
             class:'btn btn-sm', style:'color:var(--stop); border-color:var(--stop)',
             onclick:() => ask('Очистить кабинет?',
-              'Ученики, группы, занятия, темы, материалы и оплаты будут стёрты, загруженные файлы удалены из браузера. Вернуть можно кнопкой «↶ Отменить» сразу после — но если данные нужны наверняка, сначала выгрузите их в файл.',
+              'Ученики, группы, занятия, темы, материалы и оплаты будут стёрты, загруженные файлы останутся для отмены и восстановления. Вернуть можно кнопкой «↶ Отменить» сразу после — но если данные нужны наверняка, сначала выгрузите их в файл.',
               'Очистить всё', () => {
-                try { fileTx('readwrite', st => st.clear()); } catch (e) {}
+                /* Keep blobs: clearing the cabinet can be undone. */
                 S = seed(); save('Очищен кабинет'); toast('Кабинет очищен');
               }, true)
           }, 'Очистить всё')),
