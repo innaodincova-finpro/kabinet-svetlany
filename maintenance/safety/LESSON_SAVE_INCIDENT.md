@@ -23,3 +23,11 @@ separately when capturing the affected device. No claim of recovered user data.
 
 Before deployment capture a fresh backup again if the user continued working.
 Rollback means reverting code; do not overwrite newer records with an old backup.
+
+2026-09-08: Help reorganised into seven native disclosure sections, closed by
+default; existing controls and handlers retained. Expansion state is in memory
+only. Build and saved-record timestamps display local date, hours and minutes.
+Verified backup timestamp is additive (svetlana-backup-verified-at); legacy
+tochka-backup date remains unchanged for reminder compatibility. Date-only older
+backups explicitly say their time was not recorded. Browser acceptance now checks
+all seven sections, viewport fit, timestamps and unchanged records on interaction.

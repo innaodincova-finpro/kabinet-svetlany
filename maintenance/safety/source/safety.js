@@ -166,7 +166,7 @@ async function safeRecoveryList() {
   if(!shown)body.append(el('p',{},'В браузере не найдены копии. Можно загрузить файл из OneDrive.'));
 }
 function safeSummary() {
-  return (autoHandle?'Файл: '+autoHandle.name+'. ':'')+safeStatus+(safeLastAt?' Последняя проверенная запись: '+new Date(safeLastAt).toLocaleString('ru-RU')+'.':'')+' Отправку в облако выполняет OneDrive; кабинет проверяет запись файла, но не доставку в облако.';
+  return (autoHandle?'Файл: '+autoHandle.name+'. ':'')+safeStatus+(safeLastAt?' Последняя проверенная запись: '+helpDateTime(safeLastAt)+'.':'')+' Отправку в облако выполняет OneDrive; кабинет проверяет запись файла, но не доставку в облако.';
 }
 function safeNotice() { safeError='';if(typeof cur!=='undefined'&&cur==='help')render();refreshBar(); }
 async function safeRestoreAuto() {

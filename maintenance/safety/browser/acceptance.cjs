@@ -94,6 +94,21 @@ const results=[];
    const pupil=page.locator('#view select').filter({has:page.locator('option',{hasText:'TEST A'})});
    await pupil.selectOption('a');let text=await page.locator('#view').innerText();assert(text.includes('ONLY_A_ERROR')&&!text.includes('ONLY_B_ERROR'),'A report isolation');
    await pupil.selectOption('b');text=await page.locator('#view').innerText();assert(text.includes('ONLY_B_ERROR')&&!text.includes('ONLY_A_ERROR'),'B report isolation');
+   if(await menu.isVisible())await menu.click();
+   await page.locator('#nav button').filter({hasText:'Помощь'}).click();
+   const help=page.locator('#view .help-section');
+   assert.equal(await help.count(),7,'Help has seven collapsible sections');
+   assert.equal(await page.locator('#view .help-section[open]').count(),0,'Help initially collapsed');
+   const beforeHelp=await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2'));
+   await page.screenshot({path:path.join(out,spec.name+'-help.png')});
+   for(let i=0;i<7;i++){
+    const block=help.nth(i);await block.locator('summary').click();
+    assert(await block.evaluate(n=>n.open),'Section expands');
+    assert(await page.locator('#view').evaluate(n=>n.scrollWidth<=n.clientWidth+2),'Help fits viewport');
+    if(i===3){const t=await block.innerText();assert(/сборка .*\d{2}:\d{2}/.test(t),'Build has hours and minutes');assert(/Последнее сохранение в браузере: .*\d{2}:\d{2}/.test(t),'Saved record has hours and minutes');}
+    await block.locator('summary').click();assert(await block.evaluate(n=>!n.open),'Section collapses');
+   }
+   assert.equal(await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2')),beforeHelp,'Help interaction does not mutate records');
    assert.deepEqual(errors,[],'No browser runtime errors');assert.deepEqual(requests,[],'No external requests');
    results.push({name:spec.name,passed:true,scenarios:['save-reload-personal-text-and-PDF','next-lesson-personal-answer','PDF-canvas-render','separate-checks-and-reports','narrow-form-controls']});console.log('PASS',spec.name);
   }catch(e){results.push({name:spec.name,passed:false,error:e.stack,errors,requests});console.error('FAIL',spec.name,e.message);if(page){await page.screenshot({path:path.join(out,spec.name+'-failure.png')}).catch(()=>{});fs.writeFileSync(path.join(out,spec.name+'-failure.html'),await page.content().catch(()=>''));}}

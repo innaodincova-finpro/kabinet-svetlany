@@ -22,7 +22,7 @@ function safeComplete(before,changes,isAuto=false) {
   safeLastAt=new Date().toISOString();
   if(snapshot()===before){if(isAuto)safeLastSnapshot=before;if(changesSince()===changes)resetChanges();}
   else safePending=true;
-  try{localStorage.setItem('tochka-backup',iso(new Date()))}catch{}
+  try{localStorage.setItem('tochka-backup',iso(new Date()));localStorage.setItem('svetlana-backup-verified-at',safeLastAt)}catch{}
   saveLamp('ok','копия проверена '+nowHM());
 }
 function persist(quiet) {
