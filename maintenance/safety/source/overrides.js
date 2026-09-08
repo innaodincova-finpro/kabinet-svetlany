@@ -26,6 +26,7 @@ function safeComplete(before,changes,isAuto=false) {
   saveLamp('ok','копия проверена '+nowHM());
 }
 function persist(quiet) {
+  if(typeof pendingSave!=='undefined' && pendingSave && !pendingRetrying)return false;
   if(safeBooting||readOnlyTab||dataUnreadable||safeImporting){if(!quiet)render();return false;}
   try{
     const current=localStorage.getItem(KEY);

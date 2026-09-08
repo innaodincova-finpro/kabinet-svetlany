@@ -110,6 +110,25 @@ const results=[];
     await block.locator('summary').click();assert(await block.evaluate(n=>!n.open),'Section collapses');
    }
    assert.equal(await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2')),beforeHelp,'Help interaction does not mutate records');
+   await help.nth(2).locator('summary').click();
+   await page.evaluate(()=>{Storage.prototype.setItem=function(){throw new DOMException('Test full storage','QuotaExceededError');};});
+   await page.getByLabel('Имя репетитора',{exact:true}).fill('PENDING_TUTOR');
+   await page.getByLabel('Имя репетитора',{exact:true}).press('Tab');
+   const pending=page.locator('#pendingSaveDlg');
+   await pending.getByText('Ввод сохранён отдельно для повторной попытки.',{exact:false}).waitFor();
+   assert.equal(await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2')),beforeHelp,'Failed settings save does not change primary');
+   await page.screenshot({path:path.join(out,spec.name+'-pending.png')});
+   page.once('dialog',d=>d.accept());await page.reload();await pending.waitFor({state:'visible'});
+   await pending.getByRole('button',{name:'Повторить запись',exact:true}).click();await pending.waitFor({state:'hidden'});
+   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('tochka-resheniya-v2')).tutor),'PENDING_TUTOR','Fallback survives reload and retries');
+   if(await menu.isVisible())await menu.click();
+   await page.locator('#nav button').filter({hasText:'Сегодня'}).click();
+   await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();
+   const absent=page.locator('#lessonDlg button.pill').filter({hasText:'пропуск'}).first();
+   await absent.click();
+   page.once('dialog',d=>d.accept());await page.reload();
+   await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();
+   assert.equal(await page.locator('#lessonDlg button.pill').filter({hasText:'пропуск'}).first().getAttribute('aria-pressed'),'true','Attendance click alone survives reload');
    assert.deepEqual(errors,[],'No browser runtime errors');assert.deepEqual(requests,[],'No external requests');
    results.push({name:spec.name,passed:true,scenarios:['save-reload-personal-text-and-PDF','next-lesson-personal-answer','PDF-canvas-render','separate-checks-and-reports','narrow-form-controls']});console.log('PASS',spec.name);
   }catch(e){results.push({name:spec.name,passed:false,error:e.stack,errors,requests});console.error('FAIL',spec.name,e.message);if(page){await page.screenshot({path:path.join(out,spec.name+'-failure.png')}).catch(()=>{});fs.writeFileSync(path.join(out,spec.name+'-failure.html'),await page.content().catch(()=>''));}}

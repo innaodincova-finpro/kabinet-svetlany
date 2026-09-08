@@ -14,3 +14,4 @@ node maintenance/safety/tests/safety.cjs "${1:-}"
 node maintenance/safety/tests/homework.cjs
 
 node maintenance/safety/tests/materials.cjs
+node maintenance/safety/tests/pending-save.cjs
