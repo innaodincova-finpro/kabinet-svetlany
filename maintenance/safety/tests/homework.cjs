@@ -62,6 +62,41 @@ async function check(name,fn){await fn();console.log('PASS',name)}
   a.openLessonCard(l,false);dlg=doc.querySelector('#lessonDlg');
   assert.ok(dlg.querySelectorAll('textarea').some(x=>x.value==='№ 7: ошибка знака'));
  });
+ await check('Read-only lesson save preserves form, draft and stored data',()=>{
+  const {a,d,doc,raw}=setup();a.persist(true);const before=a.getRaw();
+  a.openLessonCard(d.lessons[0],false);const dlg=doc.querySelector('#lessonDlg');
+  const text=dlg.querySelectorAll('textarea').find(x=>x.getAttribute('placeholder')==='Учебник, страницы, номера заданий; решения и ответы');
+  text.value='UNSAVED_SOLUTION';text.dispatchEvent({type:'input',bubbles:true});
+  a.setFlags({readOnlyTab:true});dlg.querySelectorAll('button').find(x=>x.textContent==='Сохранить').click();
+  assert.equal(a.getRaw(),before);assert.equal(dlg.open,true);
+  assert.equal(doc.querySelector('#toast').textContent,'Занятие не сохранено');
+  const draft=JSON.parse(raw['tochka-draft:v2:lesson:old']);assert.equal(draft.extras.solution.text,'UNSAVED_SOLUTION');
+  assert.notEqual(a.getState().lessons[0].hwSolution?.text,'UNSAVED_SOLUTION');
+ });
+ await check('Storage refusal leaves lesson and draft open instead of success',()=>{
+  const {a,d,doc,ctx,raw}=setup();a.persist(true);const before=a.getRaw();a.openLessonCard(d.lessons[0],false);
+  a.setStorageFailure(true);
+  const dlg=doc.querySelector('#lessonDlg');dlg.querySelectorAll('button').find(x=>x.textContent==='Сохранить').click();
+  assert.equal(a.getRaw(),before);assert.equal(dlg.open,true);assert.ok(raw['tochka-draft:v2:lesson:old']);
+  assert.equal(doc.querySelector('#toast').textContent,'Занятие не сохранено');
+ });
+ await check('Concurrent newer record cannot be replaced by an open lesson form',()=>{
+  const {a,d,doc}=setup();a.persist(true);a.openLessonCard(d.lessons[0],false);
+  const newer=JSON.parse(a.getRaw());newer.lessons[0].homework='NEWER';a.putRaw(JSON.stringify(newer));
+  const dlg=doc.querySelector('#lessonDlg');dlg.querySelectorAll('button').find(x=>x.textContent==='Сохранить').click();
+  assert.equal(JSON.parse(a.getRaw()).lessons[0].homework,'NEWER');assert.equal(dlg.open,true);
+ });
+ await check('Extended draft restores solution PDF link and individual feedback',()=>{
+  const {a,d,doc,raw}=setup();
+  raw['tochka-draft:v2:lesson:old']=JSON.stringify({at:Date.now(),d:{},extras:{solution:{text:'DRAFT',fileId:'kept-pdf',fileName:'kept.pdf'},hwChecks:{a:{s:'ошибки',note:'DRAFT_ERROR'}},perData:{a:{homework:'PERSONAL',hwSolution:{text:'PERSONAL_SOLUTION'}}}}});
+  a.openLessonCard(d.lessons[0],false);const dlg=doc.querySelector('#lessonDlg');
+  assert.ok(dlg.querySelectorAll('textarea').some(x=>x.value==='DRAFT'));
+  assert.ok(dlg.querySelectorAll('textarea').some(x=>x.value==='DRAFT_ERROR'));
+  assert.ok(dlg.querySelectorAll('button').some(x=>x.textContent==='Открыть PDF решения'&&!x.disabled));
+  dlg.querySelectorAll('button').find(x=>x.textContent==='Сохранить').click();
+  const l=JSON.parse(a.getRaw()).lessons[0];assert.equal(l.hwSolution.fileId,'kept-pdf');assert.equal(l.per.a.hwSolution.text,'PERSONAL_SOLUTION');
+  assert.equal(raw['tochka-draft:v2:lesson:old'],undefined);
+ });
  await check('Parent reports do not exchange individual errors between pupils',()=>{
   const {a,d}=setup();d.lessons[0].marks.b={s:'был'};
   d.lessons[0].hwChecks={a:{s:'ошибки',note:'ONLY_A'},b:{s:'частично',note:'ONLY_B'}};

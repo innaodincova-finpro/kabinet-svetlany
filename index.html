@@ -1904,7 +1904,7 @@ const DRAFT_V = 'v2';
 const DKEY = k => 'tochka-draft:' + DRAFT_V + ':' + k;
 /* Файловые поля в черновик не попадают: браузер запрещает подставлять в них значение. */
 const draftable = n => n.type !== 'file' && n.type !== 'hidden';
-function draftAttach(key, nodes) {
+function draftAttach(key, nodes, extras = null) {
   let t;
   nodes = nodes.filter(draftable);
   const val = n => n.type === 'checkbox' ? n.checked : n.value;
@@ -1912,7 +1912,7 @@ function draftAttach(key, nodes) {
     try {
       const d = {};
       nodes.forEach((n, i) => d[i] = val(n));
-      localStorage.setItem(DKEY(key), JSON.stringify({at: Date.now(), d}));
+      localStorage.setItem(DKEY(key), JSON.stringify({at: Date.now(), d, ...(extras ? {extras:extras()} : {})}));
     } catch (e) { /* браузер не даёт писать — не страшно */ }
   };
   const read = () => {
@@ -1921,7 +1921,7 @@ function draftAttach(key, nodes) {
       return raw ? JSON.parse(raw) : null;
     } catch (e) { return null; }
   };
-  const clear = () => { try { localStorage.removeItem(DKEY(key)); } catch (e) {} };
+  const clear = () => { clearTimeout(t); try { localStorage.removeItem(DKEY(key)); } catch (e) {} };
   nodes.forEach(n => {
     n.addEventListener('input', () => { clearTimeout(t); t = setTimeout(write, 300); });
     n.addEventListener('change', write);
@@ -3689,7 +3689,7 @@ function buildReport(st, month) {
 }
 
 /* ═══════════ 9. ПОМОЩЬ ═══════════ */
-function viewHelp() {
+function viewHelpContent() {
   const noTopic = S.lessons.filter(l => !l.topicId).length;
   const emptyGroups = S.groups.filter(g => !g.memberIds.length).length;
   const noMethod = allTopics().filter(t => !t.goals && !t.method).length;
@@ -3806,11 +3806,11 @@ function viewHelp() {
           }, 'Очистить всё')),
         el('div', {style:'margin-top:14px; padding-top:14px; border-top:1px solid var(--line)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Сохранность данных'}),
-          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION),
+          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION + ' · сборка ' + helpDateTime('2026-09-08T06:07:31Z')),
           el('div', {class:'meta', style:'font-size:13px'},
-            'Последняя копия: ' + (lastBackup() ? fmtDate(lastBackup()) + ' (' + daysSinceBackup() + ' ' + plural(daysSinceBackup(),'день','дня','дней') + ' назад)' : 'ещё не сохранялась')),
+            'Последняя копия: ' + (lastBackup() ? helpDateTime(helpBackupTime()) + ' (' + daysSinceBackup() + ' ' + plural(daysSinceBackup(),'день','дня','дней') + ' назад)' : 'ещё не сохранялась')),
           el('div', {class:'meta', style:'font-size:13px'},
-            'Хранилище браузера: ' + (persistState === 'защищено'
+            'Последнее сохранение в браузере: ' + helpDateTime(helpSavedTime()) + '. Хранилище браузера: ' + (persistState === 'защищено'
               ? 'запрошена защита от автоматической очистки; резервная копия всё равно нужна'
               : persistState === 'обычное'
                 ? 'обычное — при нехватке места на диске браузер может очистить данные сайта, поэтому храните копии'
@@ -4096,7 +4096,9 @@ function openLessonCard(L, isNew) {
 
   // блок «После урока» — отметка по каждому ученику отдельно
   const o = draft.ownerType === 'group' ? group(draft.ownerId) : student(draft.ownerId);
-  const marks = JSON.parse(JSON.stringify(draft.marks || {}));
+  let savedExtras = {};
+  try { savedExtras = JSON.parse(localStorage.getItem(DKEY('lesson:' + draft.id)) || '{}').extras || {}; } catch {}
+  const marks = JSON.parse(JSON.stringify(savedExtras.marks || draft.marks || {}));
   /* Кнопки доски показываются только для онлайн-занятий и пересчитываются
      сразу, как только в списке выбрали другого ученика или группу. */
   const meetBtn = el('button', {class:'btn btn-sm', type:'button',
@@ -4131,9 +4133,10 @@ function openLessonCard(L, isNew) {
   /* Домашняя работа с прошлого урока: что было задано, сделал ли ученик
      и что не получилось. Спрашивают об этом в начале занятия, поэтому
      блок стоит выше «Результата». */
-  const hwChecks = JSON.parse(JSON.stringify(draft.hwChecks || {}));
-  const solution = JSON.parse(JSON.stringify(draft.hwSolution || {}));
-  const hwCheck = { s: (draft.hwCheck && draft.hwCheck.s) || null, note: (draft.hwCheck && draft.hwCheck.note) || '' };
+  const hwChecks = JSON.parse(JSON.stringify(savedExtras.hwChecks || draft.hwChecks || {}));
+  const solution = JSON.parse(JSON.stringify(savedExtras.solution || draft.hwSolution || {}));
+  const restoredCheck = savedExtras.hwCheck || draft.hwCheck;
+  const hwCheck = { s: (restoredCheck && restoredCheck.s) || null, note: (restoredCheck && restoredCheck.note) || '' };
   const hwNoteIn = el('textarea', {style:'min-height:56px', placeholder:'Что не получилось, какие ошибки разобрали'});
   hwNoteIn.value = hwCheck.note;
   hwNoteIn.addEventListener('input', () => { hwCheck.note = hwNoteIn.value; });
@@ -4244,7 +4247,7 @@ function openLessonCard(L, isNew) {
 
   /* Личные записи по участникам группы. Поля создаются заново при смене
      ученика или группы, набранное при этом не теряется — оно живёт в perData. */
-  const perData = JSON.parse(JSON.stringify(draft.per || {}));
+  const perData = JSON.parse(JSON.stringify(savedExtras.perData || draft.per || {}));
   const perBox = el('div', {class:'card', style:'padding:14px; margin:4px 0; display:none'});
   function renderPer() {
     const [ot, oid] = ownerSel.value.split(':');
@@ -4501,7 +4504,10 @@ function openLessonCard(L, isNew) {
 
   const draftNoteBox = el('div');
   const lessonDraft = draftAttach('lesson:' + draft.id,
-    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn, restIn]);
+    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn, restIn],
+    () => ({solution, hwChecks, perData, marks, hwCheck}));
+  body.addEventListener('input', lessonDraft.write);
+  body.addEventListener('change', lessonDraft.write);
   /* Самая обидная потеря — закрыть карточку крестиком после того, как
      наговорил рассказ и заполнил поля. Запоминаем, с чем окно открылось,
      и при закрытии без сохранения честно спрашиваем. */
@@ -4511,6 +4517,7 @@ function openLessonCard(L, isNew) {
     planIn.value, noteIn.value, resIn.value, hwIn.value, tellIn.value, restIn.value,
     hwCheck.s || '', hwNoteIn.value, JSON.stringify(marks), JSON.stringify(solution), JSON.stringify(hwChecks), JSON.stringify(perData)
   ]);
+  const lessonRawAtOpen = localStorage.getItem(KEY);
   let formWas = '';
   const dirty = () => formWas && snapForm() !== formWas;
 
@@ -4531,7 +4538,7 @@ function openLessonCard(L, isNew) {
   {
     const saved = lessonDraft.read();
     if (saved && draftRestore(saved, lessonDraft.nodes)) {
-      fillMethod(); renderAfter();
+      fillMethod(); renderAfter(); renderPer(); renderHw();
       draftNoteBox.append(draftNote(() => { lessonDraft.clear(); dlg.close(); toast('Черновик убран'); }));
     }
   }
@@ -4569,7 +4576,7 @@ function openLessonCard(L, isNew) {
        успела лечь в поле, а не потерялась вместе с закрытием окна. */
     micStop(true);
     if (homeworkUploads) { toast('Дождитесь загрузки решения PDF'); return; }
-    saving = true;
+    lessonDraft.write();
     const clash = overlaps(dateIn.value, timeIn.value, +durSel.value, draft.id);
     if (clash) { warn.textContent = `Не сохранить: время занято (${ownerName(clash)}).`; return; }
     const [ot, oid] = ownerSel.value.split(':');
@@ -4601,11 +4608,34 @@ function openLessonCard(L, isNew) {
     if (sameOwner) { data.members = draft.members; data.rates = draft.rates; }
     data.done = Object.keys(data.marks).length > 0;
     freezeLesson(data);
+    if (localStorage.getItem(KEY) !== lessonRawAtOpen) {
+      warn.textContent = 'Занятие не сохранено: данные изменились после открытия карточки. Ваш ввод оставлен в форме и черновике.';
+      toast('Занятие не сохранено'); return;
+    }
+    const previous = S;
+    S = JSON.parse(JSON.stringify(S));
     const idx = S.lessons.findIndex(x => x.id === draft.id);
     if (idx >= 0) S.lessons[idx] = data; else S.lessons.push(data);
-    dlg.close(); lessonDraft.clear(); save(isNew ? 'Добавлено занятие' : 'Изменено занятие'); toast(isNew ? 'Занятие добавлено' : 'Карточка сохранена');
+    if (!persist(true)) {
+      S = previous;
+      warn.textContent = 'Занятие не сохранено. Форма оставлена открытой. ' +
+        (readOnlyTab ? 'Данные изменены в другом окне; не закрывайте эту карточку.' : safeStatus || 'Запись сейчас недоступна.');
+      toast('Занятие не сохранено');
+      return;
+    }
+    if (lastSnap) {
+      hist.push({label:isNew ? 'Добавлено занятие' : 'Изменено занятие', at:nowHM(), snap:lastSnap});
+      if (hist.length > 20) hist.shift();
+      redo = [];
+    }
+    lastSnap = snapshot(); bumpChanges(); autoSaveSoon();
+    saving = true; dlg.close(); lessonDraft.clear(); render();
+    toast(isNew ? 'Занятие добавлено' : 'Карточка сохранена');
   }
   formWas = snapForm();
+  const keepLesson = e => { if (dirty() || homeworkUploads) { lessonDraft.write(); e.preventDefault(); e.returnValue=''; } };
+  window.addEventListener('beforeunload', keepLesson);
+  dlg.addEventListener('close', () => window.removeEventListener('beforeunload', keepLesson), {once:true});
   dlg.showModal();
 }
 
@@ -6743,7 +6773,7 @@ async function safeRecoveryList() {
   if(!shown)body.append(el('p',{},'В браузере не найдены копии. Можно загрузить файл из OneDrive.'));
 }
 function safeSummary() {
-  return (autoHandle?'Файл: '+autoHandle.name+'. ':'')+safeStatus+(safeLastAt?' Последняя проверенная запись: '+new Date(safeLastAt).toLocaleString('ru-RU')+'.':'')+' Отправку в облако выполняет OneDrive; кабинет проверяет запись файла, но не доставку в облако.';
+  return (autoHandle?'Файл: '+autoHandle.name+'. ':'')+safeStatus+(safeLastAt?' Последняя проверенная запись: '+helpDateTime(safeLastAt)+'.':'')+' Отправку в облако выполняет OneDrive; кабинет проверяет запись файла, но не доставку в облако.';
 }
 function safeNotice() { safeError='';if(typeof cur!=='undefined'&&cur==='help')render();refreshBar(); }
 async function safeRestoreAuto() {
@@ -6783,21 +6813,22 @@ function safeComplete(before,changes,isAuto=false) {
   safeLastAt=new Date().toISOString();
   if(snapshot()===before){if(isAuto)safeLastSnapshot=before;if(changesSince()===changes)resetChanges();}
   else safePending=true;
-  try{localStorage.setItem('tochka-backup',iso(new Date()))}catch{}
+  try{localStorage.setItem('tochka-backup',iso(new Date()));localStorage.setItem('svetlana-backup-verified-at',safeLastAt)}catch{}
   saveLamp('ok','копия проверена '+nowHM());
 }
 function persist(quiet) {
-  if(safeBooting||readOnlyTab||dataUnreadable||safeImporting){if(!quiet)render();return;}
+  if(safeBooting||readOnlyTab||dataUnreadable||safeImporting){if(!quiet)render();return false;}
   try{
     const current=localStorage.getItem(KEY);
-    if(current!==safeKnownRaw){readOnlyTab=true;safeStatus='Данные изменены в другом окне. Откройте рабочее окно.';refreshBar();return;}
+    if(current!==safeKnownRaw){readOnlyTab=true;safeStatus='Данные изменены в другом окне. Откройте рабочее окно.';refreshBar();return false;}
     safePrepare(S);
     S.updatedAt=new Date().toISOString();const next=JSON.stringify(S);
     if(current&&current!==next)localStorage.setItem('svetlana-safety-before-save',current);
     localStorage.setItem(KEY,next);safeKnownRaw=next;storageBroken=false;shadowSave();saveLamp('ok','в браузере '+nowHM());
     if(current!==next)autoSaveSoon();
-  }catch(e){storageBroken=true;safeStatus='Не удалось сохранить в браузере: '+e.message;saveLamp('bad','НЕ СОХРАНЕНО');refreshBar();}
+  }catch(e){storageBroken=true;safeStatus='Не удалось сохранить в браузере: '+e.message;saveLamp('bad','НЕ СОХРАНЕНО');refreshBar();return false;}
   if(!quiet)render();
+  return true;
 }
 function load() {
   dataUnreadable=false;
@@ -6839,20 +6870,77 @@ function homeworkSolutionView(solution) {
 function homeworkSolutionEditor(solution) {
   const text = el('textarea',{placeholder:'Учебник, страницы, номера заданий; решения и ответы',oninput:e=>solution.text=e.target.value});
   text.value=solution.text || '';
-  const status=el('div',{class:'meta',text:solution.fileName || 'PDF не прикреплён'});
-  const input=el('input',{type:'file',accept:'application/pdf,.pdf',onchange:async e=>{
+  const status=el('div',{class:'meta',text:solution.fileName ? 'Прикреплён: ' + solution.fileName : 'PDF не прикреплён'});
+  const preview=el('button',{type:'button',class:'btn',onclick:()=>openMaterialFile(solution)},'Открыть PDF решения');
+  preview.disabled=!solution.fileId;
+  const input=el('input',{type:'file',style:'display:none',accept:'application/pdf,.pdf',onchange:async e=>{
     const f=e.target.files?.[0]; if(!f)return;
     if(f.size>25*1024*1024){toast('Выберите PDF до 25 МБ');return;}
     homeworkUploads++;input.disabled=true;status.textContent='Сохраняем PDF…';
     try {
       if(!((await f.slice(0,5).text()).startsWith('%PDF-')))throw Error('Выбранный файл не является PDF');
       const fileId='hw-'+crypto.randomUUID();await putFile(fileId,f);
-      Object.assign(solution,{fileId,fileName:f.name,title:'Решение ДЗ',size:f.size});status.textContent=f.name;
+      Object.assign(solution,{fileId,fileName:f.name,title:'Решение ДЗ',size:f.size});status.textContent='Прикреплён: '+f.name;preview.disabled=false;input.dispatchEvent(new Event('input',{bubbles:true}));
     }catch(err){status.textContent='PDF не добавлен: '+err.message;}
     finally{homeworkUploads--;input.disabled=false;input.value='';}
   }});
   return el('details',{},el('summary',{text:'Подготовить решение этого ДЗ'}),
-    el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,status);
+    el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,el('button',{type:'button',class:'btn',onclick:()=>input.click()},'Выбрать PDF'),status,preview);
+}
+
+// Presentation only: preserve original controls and their event handlers.
+const helpExpanded = new Set();
+function helpDateTime(value) {
+  if (!value) return 'ещё не записано';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return 'дата неизвестна';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return fmtDate(value) + ' · время не записано';
+  return d.toLocaleString('ru-RU', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function helpBackupTime() {
+  try {
+    const stamp = localStorage.getItem('svetlana-backup-verified-at');
+    return stamp && iso(new Date(stamp)) === lastBackup() ? stamp : lastBackup();
+  } catch { return lastBackup(); }
+}
+function helpSavedTime() {
+  try { return JSON.parse(safeKnownRaw || '{}').updatedAt || ''; } catch { return ''; }
+}
+function viewHelp() {
+  const page = viewHelpContent(), grid = page.querySelector('.grid');
+  const cards = Array.from(grid.children), settings = cards[2];
+  const section = (title, nodes) => {
+    const summary = el('summary', {style:'cursor:pointer;font-weight:600;padding:4px 0;min-height:36px;overflow-wrap:anywhere'}, title);
+    const details = el('details', {class:'card help-section'}, summary,
+      el('div', {style:'padding-top:12px;min-width:0'}, ...nodes));
+    details.open = helpExpanded.has(title);
+    details.addEventListener('toggle', () => {
+      if (details.open) helpExpanded.add(title); else helpExpanded.delete(title);
+    });
+    return details;
+  };
+  const findBlock = title => Array.from(settings.children).find(n => n.querySelector('.lab')?.textContent === title);
+  const safety = findBlock('Сохранность данных'), video = findBlock('Видео и доска');
+  safety.remove(); video.remove();
+  const videoNodes = Array.from(video.children); videoNodes.shift();
+  const usageStart = videoNodes.findIndex(n => n.querySelector('input[type="checkbox"]'));
+  const usage = usageStart >= 0 ? videoNodes.splice(usageStart) : [];
+  const voiceStart = usage.findIndex(n => n.classList.contains('lab') && n.textContent === 'Как диктовать голосом');
+  const voice = voiceStart >= 0 ? usage.splice(voiceStart) : [];
+  if (voice.length) voice.shift();
+  safety.children[0].remove();
+  settings.children[0].remove();
+  grid.innerHTML = '';
+  grid.append(
+    section('Самопроверка кабинета', Array.from(cards[0].children)),
+    section('Последние действия', Array.from(cards[1].children)),
+    section('Настройки и данные', Array.from(settings.children)),
+    section('Сохранение и версия кабинета', Array.from(safety.children)),
+    section('Видео и доска', videoNodes),
+    section('Интерфейс и подсказки', usage),
+    section('Голосовой ввод и работа с занятием', voice)
+  );
+  return page;
 }
 
 dropOldDrafts();

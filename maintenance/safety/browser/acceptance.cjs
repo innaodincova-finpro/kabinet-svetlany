@@ -42,11 +42,28 @@ const results=[];
    const personal=editors.nth(1);await personal.locator('summary').click();
    await personal.locator('textarea').fill('PERSONAL_A_ANSWER_42');
    await personal.locator('input[type=file]').setInputFiles({name:'test-solution.pdf',mimeType:'application/pdf',buffer:pdf()});
-   await personal.getByText('test-solution.pdf',{exact:true}).waitFor();
+   await personal.getByText('Прикреплён: test-solution.pdf',{exact:true}).waitFor();
+   await personal.getByRole('button',{name:'Открыть PDF решения',exact:true}).click();
+   const immediateViewer=page.locator('#pickDlg');await immediateViewer.getByText('1 из 1',{exact:true}).waitFor();
+   await immediateViewer.getByRole('button',{name:'✕',exact:true}).click();
+   // A second tab revokes writing while the original form stays open.
+   const rawBefore=await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2'));
+   const other=await context.newPage();await other.goto(origin);
+   await page.getByRole('button',{name:'Продолжить здесь',exact:true}).waitFor();
+   await dlg.getByRole('button',{name:'Сохранить',exact:true}).click();
+   assert(await dlg.isVisible(),'Rejected save keeps form open');
+   assert.equal(await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2')),rawBefore,'Rejected save preserves primary');
+   await page.getByText('Занятие не сохранено',{exact:true}).waitFor();
+   await other.close();
+   await page.reload();await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();
+   const recovered=dlg.locator('details').filter({has:page.locator('summary',{hasText:'Подготовить решение этого ДЗ'})}).nth(1);
+   await recovered.locator('summary').click();
+   assert.equal(await recovered.locator('textarea').inputValue(),'PERSONAL_A_ANSWER_42','Uncommitted solution restored from draft');
+   await recovered.getByText('Прикреплён: test-solution.pdf',{exact:true}).waitFor();
    await dlg.getByRole('button',{name:'Сохранить',exact:true}).click();await dlg.waitFor({state:'hidden'});
    await page.reload();await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();
    const again=dlg.locator('details').filter({has:page.locator('summary',{hasText:'Подготовить решение этого ДЗ'})}).nth(1);await again.locator('summary').click();
-   assert.equal(await again.locator('textarea').inputValue(),'PERSONAL_A_ANSWER_42');await again.getByText('test-solution.pdf',{exact:true}).waitFor();
+   assert.equal(await again.locator('textarea').inputValue(),'PERSONAL_A_ANSWER_42');await again.getByText('Прикреплён: test-solution.pdf',{exact:true}).waitFor();
    await dlg.getByRole('button',{name:'Отмена',exact:true}).click();await dlg.waitFor({state:'hidden'});
    await page.locator('#view button.lesson').filter({hasText:'11:00'}).click();
    await dlg.getByText('Проверяем: TASK_A',{exact:true}).waitFor();await dlg.getByText('Проверяем: TASK_B',{exact:true}).waitFor();
@@ -77,6 +94,22 @@ const results=[];
    const pupil=page.locator('#view select').filter({has:page.locator('option',{hasText:'TEST A'})});
    await pupil.selectOption('a');let text=await page.locator('#view').innerText();assert(text.includes('ONLY_A_ERROR')&&!text.includes('ONLY_B_ERROR'),'A report isolation');
    await pupil.selectOption('b');text=await page.locator('#view').innerText();assert(text.includes('ONLY_B_ERROR')&&!text.includes('ONLY_A_ERROR'),'B report isolation');
+   if(await menu.isVisible())await menu.click();
+   await page.locator('#nav button').filter({hasText:'Помощь'}).click();
+   const help=page.locator('#view .help-section');
+   await help.first().waitFor({state:'visible'});
+   assert.equal(await help.count(),7,'Help has seven collapsible sections');
+   assert.equal(await page.locator('#view .help-section[open]').count(),0,'Help initially collapsed');
+   const beforeHelp=await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2'));
+   await page.screenshot({path:path.join(out,spec.name+'-help.png')});
+   for(let i=0;i<7;i++){
+    const block=help.nth(i);await block.locator('summary').click();
+    assert(await block.evaluate(n=>n.open),'Section expands');
+    assert(await page.locator('#view').evaluate(n=>n.scrollWidth<=n.clientWidth+2),'Help fits viewport');
+    if(i===3){const t=await block.innerText();assert(/сборка .*\d{2}:\d{2}/.test(t),'Build has hours and minutes');assert(/Последнее сохранение в браузере: .*\d{2}:\d{2}/.test(t),'Saved record has hours and minutes');}
+    await block.locator('summary').click();assert(await block.evaluate(n=>!n.open),'Section collapses');
+   }
+   assert.equal(await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2')),beforeHelp,'Help interaction does not mutate records');
    assert.deepEqual(errors,[],'No browser runtime errors');assert.deepEqual(requests,[],'No external requests');
    results.push({name:spec.name,passed:true,scenarios:['save-reload-personal-text-and-PDF','next-lesson-personal-answer','PDF-canvas-render','separate-checks-and-reports','narrow-form-controls']});console.log('PASS',spec.name);
   }catch(e){results.push({name:spec.name,passed:false,error:e.stack,errors,requests});console.error('FAIL',spec.name,e.message);if(page){await page.screenshot({path:path.join(out,spec.name+'-failure.png')}).catch(()=>{});fs.writeFileSync(path.join(out,spec.name+'-failure.html'),await page.content().catch(()=>''));}}
