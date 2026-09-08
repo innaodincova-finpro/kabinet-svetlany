@@ -106,7 +106,7 @@ const results=[];
     const block=help.nth(i);await block.locator(':scope > summary').click();
     assert(await block.evaluate(n=>n.open),'Section expands');
     assert(await page.locator('#view').evaluate(n=>n.scrollWidth<=n.clientWidth+2),'Help fits viewport');
-    if(i===0){const t=await block.innerText();assert(/Последнее сохранение в браузере: .*\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}/.test(t),'Saved record has date and time');}
+    if(i===0){const t=await block.innerText();assert(t.includes('Записи на этом устройстве')&&t.includes('Резервная копия в файле'),'Separate local and file status');assert(!t.includes('Последняя проверенная копия файла'),'No unsupported verification claim');assert(/Последнее сохранение в браузере: .*\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}/.test(t),'Saved record has date and time');}
     if(i===6)assert(/подготовлено: .*\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}/.test(await block.innerText()),'Release has date and time');
     await block.locator(':scope > summary').click();assert(await block.evaluate(n=>!n.open),'Section collapses');
    }

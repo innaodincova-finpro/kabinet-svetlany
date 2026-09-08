@@ -863,6 +863,7 @@ let dataUnreadable = false;  // запись в браузере поврежд�
 /* Лампочка внизу панели: зелёная — всё сохраняется, красная — нет. */
 function saveLamp(state, text) {
   if(dataUnreadable){state='bad';text='Данные не прочитаны';}else if(storageBroken || pendingSave){state='bad';text='НЕ СОХРАНЕНО';}else if(readOnlyTab){state='bad';text='Только просмотр';}
+  if(state==='ok')text=autoFailed?'Записи в браузере сохранены; копия не обновлена':'Записи сохранены в браузере';
   const n = $('#saveState'); if (n) n.textContent = text;
   const i = document.querySelector('.rail-foot .save i');
   if (i) i.style.background = state === 'ok' ? 'var(--ok)' : 'var(--stop)';
@@ -6160,7 +6161,7 @@ async function backupNow() {
   safeBusy=true;
   try{
     const before=snapshot(),changes=changesSince(),text=await safeBackupBlob(JSON.parse(before));
-    if(handle){await safeWriteHandle(handle,text,before);safeComplete(before,changes);toast('Полная копия записана и проверена');}
+    if(handle){await safeWriteHandle(handle,text,before);safeComplete(before,changes,false,handle.name);toast('Полная копия записана и проверена');}
     else if(nativeSave('Кабинет Светлана — полная копия '+iso(new Date())+'.json',text)){toast('Скачивание полной копии начато. Проверьте файл в «Загрузках».');}
     else throw new Error('Не удалось начать скачивание');
   }catch(e){toast(e.message)}finally{safeBusy=false;if(safePending){safePending=false;autoSaveSoon();}}
@@ -6455,27 +6456,27 @@ async function autoSetup() {
 }
 async function autoOff() {
  if(safeBusy){toast('Дождитесь завершения записи');return;}
- try{await autoTx('readwrite',s=>s.delete('file'));autoHandle=null;autoOn=false;autoFailed=false;clearTimeout(autoTimer);clearTimeout(safeMaxTimer);safeMaxTimer=null;safeStatus='Автосохранение выключено';render();refreshBar();}
+ try{await autoTx('readwrite',s=>s.delete('file'));autoHandle=null;autoOn=false;autoFailed=false;savingIssue='';clearTimeout(autoTimer);clearTimeout(safeMaxTimer);safeMaxTimer=null;safeStatus='Автосохранение выключено';render();refreshBar();}
  catch(e){toast('Не удалось отключить: '+e.message);}
 }
 async function autoSaveNow(loud) {
  if(pendingSave)return false;
  if(!autoOn||!autoHandle||readOnlyTab||dataUnreadable||safeImporting)return false;
  if(safeBusy){safePending=true;return false;}
- safeBusy=true;const handle=autoHandle;
+ safeBusy=true;savingIssue='';const handle=autoHandle;
  try {
   let p=await handle.queryPermission({mode:'readwrite'});
   if(p!=='granted'&&loud)p=await handle.requestPermission({mode:'readwrite'});
-  if(p!=='granted')throw new Error('Разрешите запись в ранее выбранный файл кнопкой «Записать сейчас».');
+  if(p!=='granted')throw savingError('permission','Разрешите запись в выбранный резервный файл.');
   const before=snapshot(),changes=changesSince();
   if(before===safeLastSnapshot&&!autoFailed)return true;
   safeStatus='Записываем полную копию с вложениями…';refreshBar();
   const text=await safeBackupBlob(JSON.parse(before));
   if(readOnlyTab||dataUnreadable||handle!==autoHandle||!autoOn)throw new Error('Запись остановлена: изменилось рабочее окно');
   await safeWriteHandle(handle,text,before);
-  safeComplete(before,changes,true);autoFailed=false;safeStatus='Полная копия записана и проверена';
+  safeComplete(before,changes,true,handle.name);autoFailed=false;savingIssue='';safeStatus='Полная копия записана и проверена';
   if(loud)toast(safeStatus);return true;
- }catch(e){autoFailed=true;safeStatus='Копия не обновлена: '+e.message;if(loud)toast(safeStatus);return false;}
+ }catch(e){autoFailed=true;savingIssue=e.copyCode||'other';safeStatus='Копия не обновлена: '+e.message;if(loud)toast(savingCopyText());return false;}
  finally{safeBusy=false;refreshBar();if(typeof cur!=='undefined'&&cur==='help')render();if(safePending){safePending=false;autoSaveSoon();}}
 }
 function autoSaveSoon() {
@@ -6566,6 +6567,7 @@ function refreshBar() {
   if(dataUnreadable)saveLamp('bad','Данные не прочитаны');
   else if(storageBroken || pendingSave)saveLamp('bad','НЕ СОХРАНЕНО');
   else if(readOnlyTab)saveLamp('bad','Только просмотр');
+  if(!dataUnreadable&&!storageBroken&&!pendingSave&&!readOnlyTab&&helpSavedTime())saveLamp('ok','');
   const b = safeBarEl();
   b.textContent = ''; b.className = '';
   const put = (kind, text, btns) => {
@@ -6592,7 +6594,7 @@ function refreshBar() {
     return;
   }
   if (autoFailed) {
-    put('warn', safeStatus, [btn('Записать сейчас', () => autoSaveNow(true), true)]);
+    put('warn', savingCopyText(), savingActions().map(([label,fn])=>btn(label,fn,true)));
     return;
   }
   if (autoOn) return;   // копия пишется сама, напоминать незачем
@@ -6790,7 +6792,7 @@ async function safeRestoreAuto() {
     if(!h){safeStatus='Файл автосохранения не выбран';safeNotice();return;}
     autoHandle=h;autoOn=true;
     const p=await h.queryPermission({mode:'readwrite'});
-    if(p!=='granted'){autoFailed=true;safeStatus='Нужно разрешить запись в ранее выбранный файл';safeNotice();return;}
+    if(p!=='granted'){autoFailed=true;savingIssue='permission';safeStatus='Нужно разрешить запись в ранее выбранный файл';safeNotice();return;}
     safeStatus='Доступ к прежнему файлу подтверждён; готовим полную копию';safeNotice();
     await autoSaveNow(false);
   }catch(e){autoFailed=true;safeStatus='Не удалось прочитать настройку автосохранения: '+e.message;safeNotice();}
@@ -6802,12 +6804,12 @@ async function safeWriteHandle(handle,text,before) {
   if(existing.size) {
     await safeHistory(existing,'Предыдущая копия файла');
     const now=JSON.parse(before);
-    if(!now.students.length&&!now.lessons.length)throw new Error('Пустой кабинет не заменит существующий файл');
+    if(!now.students.length&&!now.lessons.length)throw savingError('empty','Пустой кабинет не заменит существующий файл');
     const prefix=await existing.slice(0,4*1024*1024).text(),at=prefix.indexOf(',"'+SAFE_META+'":');
     let old;
     try{old=JSON.parse(at>=0?prefix.slice(0,at)+'}':prefix);safePrepare(old)}
-    catch(e){throw new Error('Существующий файл не удалось проверить. Он не перезаписан; выберите отдельный файл копии.');}
-    if(Date.parse(old.updatedAt)>Date.parse(now.updatedAt))throw new Error('В файле есть более новая копия. Откройте «История и восстановление», чтобы выбрать её.');
+    catch(e){throw savingError('unreadable','Существующий файл не удалось проверить. Он не перезаписан; выберите отдельный файл копии.');}
+    if(Date.parse(old.updatedAt)>Date.parse(now.updatedAt))throw savingError('newer','В файле есть более новая копия. Откройте «История и восстановление», чтобы выбрать её.');
   }
   if(readOnlyTab||dataUnreadable)throw new Error('Окно больше не имеет права записи');
   const stream=await handle.createWritable();
@@ -6816,12 +6818,13 @@ async function safeWriteHandle(handle,text,before) {
   const saved=await handle.getFile();
   if(!await safeSameFile(saved,text instanceof Blob?text:new Blob([text])))throw new Error('Проверка записанного файла не пройдена. Предыдущая копия сохранена в истории.');
 }
-function safeComplete(before,changes,isAuto=false) {
+function safeComplete(before,changes,isAuto=false,fileName='') {
   safeLastAt=new Date().toISOString();
   if(snapshot()===before){if(isAuto)safeLastSnapshot=before;if(changesSince()===changes)resetChanges();}
   else safePending=true;
   try{localStorage.setItem('tochka-backup',iso(new Date()));localStorage.setItem('svetlana-backup-verified-at',safeLastAt)}catch{}
-  saveLamp('ok','копия проверена '+nowHM());
+  try{localStorage.setItem(SAVING_RECEIPT_KEY,JSON.stringify({at:safeLastAt,kind:isAuto?'auto':'manual',file:fileName,source:location.pathname}));}catch{}
+  saveLamp('ok','Записи сохранены в браузере');
 }
 function persist(quiet) {
   if(typeof pendingSave!=='undefined' && pendingSave && !pendingRetrying)return false;
@@ -6896,7 +6899,7 @@ function homeworkSolutionEditor(solution) {
     el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,el('button',{type:'button',class:'btn',onclick:()=>input.click()},'Выбрать PDF'),status,preview);
 }
 
-const HELP_RELEASE_AT = '2026-09-08T07:57:08.587087+00:00';
+const HELP_RELEASE_AT = '2026-09-08T09:06:18.872107+00:00';
 // Presentation only: preserve original controls and their event handlers.
 
 function helpDateTime(value) {
@@ -6904,7 +6907,7 @@ function helpDateTime(value) {
   if (/^\d{2}:\d{2}$/.test(value)) return value + ' · дата не записана';
   const d = new Date(value);
   if (!Number.isFinite(d.getTime())) return 'дата неизвестна';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return fmtDate(value) + ' · время не записано';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.split('-').reverse().join('.') + ' · время не записано';
   return d.toLocaleString('ru-RU', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 }
 function helpBackupTime() {
@@ -6934,7 +6937,7 @@ function viewHelp() {
     el('div',{style:'padding-top:10px;min-width:0'},...nodes));
   const find = title => Array.from(settings.children).find(n=>n.querySelector('.lab')?.textContent===title);
   const safety=find('Сохранность данных'),video=find('Видео и доска');
-  const auto=safety.lastElementChild;
+
   const fileInput=settings.querySelector('input[type="file"]');
   const settingsFields=Array.from(settings.children).filter(n=>n.classList.contains('two'));
   const boardField=Array.from(video.children).find(n=>n.tagName==='LABEL'&&n.querySelector('input:not([type="checkbox"])'));
@@ -6954,20 +6957,10 @@ function viewHelp() {
       note('Кнопка «В календарь» в расписании выгружает занятия на выбранный период. После изменений выгрузите расписание заново — ранее выгруженный файл сам не обновляется.'),
       note('В «Посещениях и оплате» кнопка «Счёт за месяц» готовит расчёт. В «Отчётах родителям» доступны результаты занятий. Готовый текст отправляете вы сами.')]]
   ];
-  const backup=helpBackupTime();
-  const saved=helpSavedTime();
-  const status=dataUnreadable?'Данные не удалось прочитать. Откройте восстановление.':
-    pendingSave||storageBroken?'Есть незаписанные изменения. Завершите повторную запись или сохраните ввод в файл.':
-    readOnlyTab?'Это окно доступно для просмотра: запись выполняется в другом окне.':
-    saved?'Последняя запись в браузере выполнена.':'Сохранённая запись пока не найдена.';
   const page=el('div',{},head('Помощь','Выберите нужный раздел. Нажмите на название, чтобы открыть или закрыть его.'),
     el('div',{class:'grid',style:'grid-template-columns:minmax(0,1fr);gap:8px'},
       section('Сохранение и резервные копии','Проверить сохранение и создать копию',[
-        note(status),note('Последнее сохранение в браузере: '+helpDateTime(saved)),
-        note('Последняя проверенная копия файла: '+helpDateTime(backup)),
-        note('Дата и время указаны по местному времени устройства. Копия включает записи, методику и вложения.'),
-        group(take('Выгрузить всё в файл'),take('Записать сейчас')),auto,
-        note('«Выгрузить всё в файл» создаёт отдельную копию. «Записать сейчас» обновляет файл, выбранный для автосохранения. Доставку файла в облако проверяйте в OneDrive. Кабинет подтверждает только запись файла.')]),
+        savingPanel(note,group,section)]),
       section('Восстановление данных','Открыть прежнюю копию или загрузить файл',[
         note('Выберите копию в истории или загрузите файл. Перед заменой проверьте предложенные сведения о копии.'),
         group(take('История и восстановление'),take('Загрузить из файла')),fileInput,
@@ -7073,6 +7066,67 @@ function save(label) {
   lastSnap=snapshot();bumpChanges();autoSaveSoon();render();return true;
 }
 window.addEventListener('beforeunload',e=>{if(pendingSave){e.preventDefault();e.returnValue='';}});
+
+// Presentation state only; records, attachments and saved file handles keep their keys.
+let savingIssue = '';
+const SAVING_RECEIPT_KEY = 'svetlana-copy-receipt-v1';
+function savingError(code,message){const e=new Error(message);e.copyCode=code;return e;}
+function savingBlocked(){return ['empty','newer','unreadable'].includes(savingIssue);}
+function savingLocalText(){
+  if(dataUnreadable)return 'Не удалось открыть сохранённые записи в этом браузере. Восстановите их из копии.';
+  if(pendingSave||storageBroken)return 'Последние изменения не записаны в браузере. Сохраните введённое из окна ошибки.';
+  if(readOnlyTab)return 'Это окно открыто для просмотра. Для изменений используйте рабочее окно кабинета.';
+  if(!S.students.length&&!S.lessons.length)return 'В этом браузере нет учеников и занятий. Методика и настройки могут быть сохранены.';
+  return 'Ученики и занятия открыты в этом браузере. Записи на другом устройстве здесь не отображаются автоматически.';
+}
+function savingCopyText(){
+  if(savingIssue==='empty')return 'Резервный файл не обновлён: в этом браузере нет учеников и занятий. Существующий файл оставлен без изменений.';
+  if(savingIssue==='newer')return 'Резервный файл не обновлён: в нём более новые записи. Существующий файл оставлен без изменений.';
+  if(savingIssue==='unreadable')return 'Резервный файл не обновлён: его содержимое не удалось проверить. Существующий файл оставлен без изменений.';
+  if(safeBusy)return 'Создаётся резервная копия. Дождитесь завершения.';
+  if(savingIssue==='permission')return 'Для обновления резервного файла нужно разрешить запись.';
+  if(autoFailed)return 'Резервная копия не обновлена. Повторите попытку или сохраните отдельную копию.';
+  if(!autoOn)return 'Автоматическое создание резервной копии не настроено.';
+  if(safeLastSnapshot===snapshot())return 'Резервная копия текущих записей создана, содержимое файла проверено.';
+  return 'Автоматическое создание копии включено. Последние изменения ещё не подтверждены в резервном файле.';
+}
+function savingReceiptText(){
+  try{
+    const r=JSON.parse(localStorage.getItem(SAVING_RECEIPT_KEY)||'null');
+    if(r&&r.source===location.pathname&&r.at&&Number.isFinite(Date.parse(r.at)))
+      return (r.kind==='auto'?'Последняя автоматическая копия':'Последняя отдельная копия')+': '+helpDateTime(r.at)+'. Файл: '+r.file+'. Проверен после записи; повторно сейчас не проверялся.';
+  }catch{}
+  const old=helpBackupTime();
+  return old?'Ранее отмечалось создание копии: '+helpDateTime(old)+'. Это старая отметка; по ней нельзя подтвердить содержимое выбранного файла.':'Дата создания резервной копии пока не подтверждена.';
+}
+function savingActions(){
+  if(savingBlocked())return [['Посмотреть доступные копии',safeRecoveryList],['Выбрать другой файл',autoSetup]];
+  if(savingIssue==='permission')return [['Разрешить запись',()=>autoSaveNow(true)]];
+  return [['Повторить создание копии',()=>autoSaveNow(true)]];
+}
+function savingPanel(note,group,section){
+  const button=(label,fn)=>el('button',{class:'btn btn-sm',onclick:fn},label);
+  const blocked=dataUnreadable||readOnlyTab||pendingSave||storageBroken;
+  const actions=blocked?[]:autoOn?(autoFailed?savingActions():[['Обновить резервную копию',()=>autoSaveNow(true)]]):[];
+  const canFile=canAuto();
+  return el('div',{},
+    el('b',{},'Записи на этом устройстве'),note(savingLocalText()),
+    note('Последнее сохранение в браузере: '+helpDateTime(helpSavedTime())),
+    el('b',{},'Резервная копия в файле'),note(savingCopyText()),
+    autoHandle?note('Выбранный файл на этом устройстве: '+autoHandle.name):null,
+    note(savingReceiptText()),
+    group(...actions.filter(([label])=>canFile||label==='Посмотреть доступные копии').map(([label,fn])=>button(label,fn)),
+      !blocked?button('Скачать отдельную копию',backupNow):null,
+      !blocked&&!autoOn&&canFile?button('Настроить резервную копию',autoSetup):null),
+    section('Как сохраняются записи','Пояснения и настройка автоматической копии',[
+      note('Все даты и время относятся к этому браузеру и указаны по местному времени устройства. Название кабинета и имя файла не подтверждают, чьи записи в них находятся.'),
+      note('Запись в браузере и резервный файл — два разных места хранения. Копия включает записи, методику и вложения. Скачивание файла само по себе не подтверждает, что он сохранился на диске.'),
+      note(canFile?'После изменений кабинет пробует обновить выбранный файл через 20 секунд. Для записи браузер может запросить разрешение.':'В этом браузере автоматическая запись в выбранный файл недоступна. Используйте скачивание отдельной копии.'),
+      note('Если файл находится в папке OneDrive, его отправкой в облако занимается OneDrive. Кабинет не подтверждает завершение этой отправки.'),
+      autoOn&&!blocked?button('Выключить автоматическую копию',autoOff):null,
+      autoOn&&!blocked&&canFile?button('Выбрать другой файл',autoSetup):null
+    ],true));
+}
 
 dropOldDrafts();
 startTick();

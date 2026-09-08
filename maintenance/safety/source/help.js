@@ -1,4 +1,4 @@
-const HELP_RELEASE_AT = '2026-09-08T07:57:08.587087+00:00';
+const HELP_RELEASE_AT = '2026-09-08T09:06:18.872107+00:00';
 // Presentation only: preserve original controls and their event handlers.
 
 function helpDateTime(value) {
@@ -6,7 +6,7 @@ function helpDateTime(value) {
   if (/^\d{2}:\d{2}$/.test(value)) return value + ' · дата не записана';
   const d = new Date(value);
   if (!Number.isFinite(d.getTime())) return 'дата неизвестна';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return fmtDate(value) + ' · время не записано';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.split('-').reverse().join('.') + ' · время не записано';
   return d.toLocaleString('ru-RU', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 }
 function helpBackupTime() {
@@ -36,7 +36,7 @@ function viewHelp() {
     el('div',{style:'padding-top:10px;min-width:0'},...nodes));
   const find = title => Array.from(settings.children).find(n=>n.querySelector('.lab')?.textContent===title);
   const safety=find('Сохранность данных'),video=find('Видео и доска');
-  const auto=safety.lastElementChild;
+
   const fileInput=settings.querySelector('input[type="file"]');
   const settingsFields=Array.from(settings.children).filter(n=>n.classList.contains('two'));
   const boardField=Array.from(video.children).find(n=>n.tagName==='LABEL'&&n.querySelector('input:not([type="checkbox"])'));
@@ -56,20 +56,10 @@ function viewHelp() {
       note('Кнопка «В календарь» в расписании выгружает занятия на выбранный период. После изменений выгрузите расписание заново — ранее выгруженный файл сам не обновляется.'),
       note('В «Посещениях и оплате» кнопка «Счёт за месяц» готовит расчёт. В «Отчётах родителям» доступны результаты занятий. Готовый текст отправляете вы сами.')]]
   ];
-  const backup=helpBackupTime();
-  const saved=helpSavedTime();
-  const status=dataUnreadable?'Данные не удалось прочитать. Откройте восстановление.':
-    pendingSave||storageBroken?'Есть незаписанные изменения. Завершите повторную запись или сохраните ввод в файл.':
-    readOnlyTab?'Это окно доступно для просмотра: запись выполняется в другом окне.':
-    saved?'Последняя запись в браузере выполнена.':'Сохранённая запись пока не найдена.';
   const page=el('div',{},head('Помощь','Выберите нужный раздел. Нажмите на название, чтобы открыть или закрыть его.'),
     el('div',{class:'grid',style:'grid-template-columns:minmax(0,1fr);gap:8px'},
       section('Сохранение и резервные копии','Проверить сохранение и создать копию',[
-        note(status),note('Последнее сохранение в браузере: '+helpDateTime(saved)),
-        note('Последняя проверенная копия файла: '+helpDateTime(backup)),
-        note('Дата и время указаны по местному времени устройства. Копия включает записи, методику и вложения.'),
-        group(take('Выгрузить всё в файл'),take('Записать сейчас')),auto,
-        note('«Выгрузить всё в файл» создаёт отдельную копию. «Записать сейчас» обновляет файл, выбранный для автосохранения. Доставку файла в облако проверяйте в OneDrive. Кабинет подтверждает только запись файла.')]),
+        savingPanel(note,group,section)]),
       section('Восстановление данных','Открыть прежнюю копию или загрузить файл',[
         note('Выберите копию в истории или загрузите файл. Перед заменой проверьте предложенные сведения о копии.'),
         group(take('История и восстановление'),take('Загрузить из файла')),fileInput,
