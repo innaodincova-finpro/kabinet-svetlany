@@ -4,12 +4,12 @@ async function safeWriteHandle(handle,text,before) {
   if(existing.size) {
     await safeHistory(existing,'Предыдущая копия файла');
     const now=JSON.parse(before);
-    if(!now.students.length&&!now.lessons.length)throw new Error('Пустой кабинет не заменит существующий файл');
+    if(!now.students.length&&!now.lessons.length)throw savingError('empty','Пустой кабинет не заменит существующий файл');
     const prefix=await existing.slice(0,4*1024*1024).text(),at=prefix.indexOf(',"'+SAFE_META+'":');
     let old;
     try{old=JSON.parse(at>=0?prefix.slice(0,at)+'}':prefix);safePrepare(old)}
-    catch(e){throw new Error('Существующий файл не удалось проверить. Он не перезаписан; выберите отдельный файл копии.');}
-    if(Date.parse(old.updatedAt)>Date.parse(now.updatedAt))throw new Error('В файле есть более новая копия. Откройте «История и восстановление», чтобы выбрать её.');
+    catch(e){throw savingError('unreadable','Существующий файл не удалось проверить. Он не перезаписан; выберите отдельный файл копии.');}
+    if(Date.parse(old.updatedAt)>Date.parse(now.updatedAt))throw savingError('newer','В файле есть более новая копия. Откройте «История и восстановление», чтобы выбрать её.');
   }
   if(readOnlyTab||dataUnreadable)throw new Error('Окно больше не имеет права записи');
   const stream=await handle.createWritable();
@@ -18,12 +18,13 @@ async function safeWriteHandle(handle,text,before) {
   const saved=await handle.getFile();
   if(!await safeSameFile(saved,text instanceof Blob?text:new Blob([text])))throw new Error('Проверка записанного файла не пройдена. Предыдущая копия сохранена в истории.');
 }
-function safeComplete(before,changes,isAuto=false) {
+function safeComplete(before,changes,isAuto=false,fileName='') {
   safeLastAt=new Date().toISOString();
   if(snapshot()===before){if(isAuto)safeLastSnapshot=before;if(changesSince()===changes)resetChanges();}
   else safePending=true;
   try{localStorage.setItem('tochka-backup',iso(new Date()));localStorage.setItem('svetlana-backup-verified-at',safeLastAt)}catch{}
-  saveLamp('ok','копия проверена '+nowHM());
+  try{localStorage.setItem(SAVING_RECEIPT_KEY,JSON.stringify({at:safeLastAt,kind:isAuto?'auto':'manual',file:fileName,source:location.pathname}));}catch{}
+  saveLamp('ok','Записи сохранены в браузере');
 }
 function persist(quiet) {
   if(typeof pendingSave!=='undefined' && pendingSave && !pendingRetrying)return false;

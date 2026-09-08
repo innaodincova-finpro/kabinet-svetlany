@@ -18,7 +18,7 @@ block('async function backupNow() {','const lastBackup =',"""async function back
   safeBusy=true;
   try{
     const before=snapshot(),changes=changesSince(),text=await safeBackupBlob(JSON.parse(before));
-    if(handle){await safeWriteHandle(handle,text,before);safeComplete(before,changes);toast('Полная копия записана и проверена');}
+    if(handle){await safeWriteHandle(handle,text,before);safeComplete(before,changes,false,handle.name);toast('Полная копия записана и проверена');}
     else if(nativeSave('Кабинет Светлана — полная копия '+iso(new Date())+'.json',text)){toast('Скачивание полной копии начато. Проверьте файл в «Загрузках».');}
     else throw new Error('Не удалось начать скачивание');
   }catch(e){toast(e.message)}finally{safeBusy=false;if(safePending){safePending=false;autoSaveSoon();}}
@@ -50,26 +50,26 @@ block('async function autoSetup() {','/* --- Кабинет открыт в дв
 }
 async function autoOff() {
  if(safeBusy){toast('Дождитесь завершения записи');return;}
- try{await autoTx('readwrite',s=>s.delete('file'));autoHandle=null;autoOn=false;autoFailed=false;clearTimeout(autoTimer);clearTimeout(safeMaxTimer);safeMaxTimer=null;safeStatus='Автосохранение выключено';render();refreshBar();}
+ try{await autoTx('readwrite',s=>s.delete('file'));autoHandle=null;autoOn=false;autoFailed=false;savingIssue='';clearTimeout(autoTimer);clearTimeout(safeMaxTimer);safeMaxTimer=null;safeStatus='Автосохранение выключено';render();refreshBar();}
  catch(e){toast('Не удалось отключить: '+e.message);}
 }
 async function autoSaveNow(loud) {
  if(!autoOn||!autoHandle||readOnlyTab||dataUnreadable||safeImporting)return false;
  if(safeBusy){safePending=true;return false;}
- safeBusy=true;const handle=autoHandle;
+ safeBusy=true;savingIssue='';const handle=autoHandle;
  try {
   let p=await handle.queryPermission({mode:'readwrite'});
   if(p!=='granted'&&loud)p=await handle.requestPermission({mode:'readwrite'});
-  if(p!=='granted')throw new Error('Разрешите запись в ранее выбранный файл кнопкой «Записать сейчас».');
+  if(p!=='granted')throw savingError('permission','Разрешите запись в выбранный резервный файл.');
   const before=snapshot(),changes=changesSince();
   if(before===safeLastSnapshot&&!autoFailed)return true;
   safeStatus='Записываем полную копию с вложениями…';refreshBar();
   const text=await safeBackupBlob(JSON.parse(before));
   if(readOnlyTab||dataUnreadable||handle!==autoHandle||!autoOn)throw new Error('Запись остановлена: изменилось рабочее окно');
   await safeWriteHandle(handle,text,before);
-  safeComplete(before,changes,true);autoFailed=false;safeStatus='Полная копия записана и проверена';
+  safeComplete(before,changes,true,handle.name);autoFailed=false;savingIssue='';safeStatus='Полная копия записана и проверена';
   if(loud)toast(safeStatus);return true;
- }catch(e){autoFailed=true;safeStatus='Копия не обновлена: '+e.message;if(loud)toast(safeStatus);return false;}
+ }catch(e){autoFailed=true;savingIssue=e.copyCode||'other';safeStatus='Копия не обновлена: '+e.message;if(loud)toast(savingCopyText());return false;}
  finally{safeBusy=false;refreshBar();if(typeof cur!=='undefined'&&cur==='help')render();if(safePending){safePending=false;autoSaveSoon();}}
 }
 function autoSaveSoon() {
@@ -126,6 +126,11 @@ s=s.replace("at: nowHM()", "at: new Date().toISOString()").replace("at:nowHM()",
 s=s.replace("text:h.at", "text:helpDateTime(h.at)")
 s=s.replace("function refreshBar() {", "function refreshBar() {\n  if(dataUnreadable)saveLamp('bad','Данные не прочитаны');\n  else if(storageBroken || pendingSave)saveLamp('bad','НЕ СОХРАНЕНО');\n  else if(readOnlyTab)saveLamp('bad','Только просмотр');")
 s=s.replace("const n = $('#saveState');", "if(dataUnreadable){state='bad';text='Данные не прочитаны';}else if(storageBroken || pendingSave){state='bad';text='НЕ СОХРАНЕНО';}else if(readOnlyTab){state='bad';text='Только просмотр';}\n  const n = $('#saveState');")
+s=s.replace('dropOldDrafts();\nstartTick();', (root/'source/saving-ui.js').read_text()+'\ndropOldDrafts();\nstartTick();')
+s=s.replace("if(p!=='granted'){autoFailed=true;safeStatus=", "if(p!=='granted'){autoFailed=true;savingIssue='permission';safeStatus=")
+s=s.replace("put('warn', safeStatus, [btn('Записать сейчас', () => autoSaveNow(true), true)]);", "put('warn', savingCopyText(), savingActions().map(([label,fn])=>btn(label,fn,true)));")
+s=s.replace("const n = $('#saveState');", "if(state==='ok')text=autoFailed?'Записи в браузере сохранены; копия не обновлена':'Записи сохранены в браузере';\n  const n = $('#saveState');")
+s=s.replace("  const b = safeBarEl();", "  if(!dataUnreadable&&!storageBroken&&!pendingSave&&!readOnlyTab&&helpSavedTime())saveLamp('ok','');\n  const b = safeBarEl();")
 (root/'site/index.html').write_text(s)
 sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1').replace('svetlana-homework-20260906-1','svetlana-homework-20260907-3')
 (root/'site/sw.js').write_text(sw)
