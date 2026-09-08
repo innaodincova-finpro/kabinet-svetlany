@@ -98,19 +98,28 @@ const results=[];
    await page.locator('#nav button').filter({hasText:'Помощь'}).click();
    const help=page.locator('#view .help-section');
    await help.first().waitFor({state:'visible'});
-   assert.equal(await help.count(),7,'Help has seven collapsible sections');
+   assert.equal(await help.count(),8,'Help has eight collapsible sections');
    assert.equal(await page.locator('#view .help-section[open]').count(),0,'Help initially collapsed');
    const beforeHelp=await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2'));
    await page.screenshot({path:path.join(out,spec.name+'-help.png')});
-   for(let i=0;i<7;i++){
+   for(let i=0;i<8;i++){
     const block=help.nth(i);await block.locator('summary').click();
     assert(await block.evaluate(n=>n.open),'Section expands');
     assert(await page.locator('#view').evaluate(n=>n.scrollWidth<=n.clientWidth+2),'Help fits viewport');
-    if(i===3){const t=await block.innerText();assert(/сборка .*\d{2}:\d{2}/.test(t),'Build has hours and minutes');assert(/Последнее сохранение в браузере: .*\d{2}:\d{2}/.test(t),'Saved record has hours and minutes');}
+    if(i===0){const t=await block.innerText();assert(/Последнее сохранение в браузере: .*\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}/.test(t),'Saved record has date and time');}
+    if(i===6)assert(/подготовлено: .*\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}/.test(await block.innerText()),'Release has date and time');
     await block.locator('summary').click();assert(await block.evaluate(n=>!n.open),'Section collapses');
    }
+   await help.nth(0).locator('summary').click();
+   if(await menu.isVisible())await menu.click();
+   await page.locator('#nav button').filter({hasText:'Сегодня'}).click();
+   await page.locator('#view h1').filter({hasText:'Сегодня'}).waitFor();
+   if(await menu.isVisible())await menu.click();
+   await page.locator('#nav button').filter({hasText:'Помощь'}).click();
+   await help.first().waitFor({state:'visible'});
+   assert.equal(await page.locator('#view .help-section[open]').count(),0,'Return to help collapses all sections');
    assert.equal(await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2')),beforeHelp,'Help interaction does not mutate records');
-   await help.nth(2).locator('summary').click();
+   await help.nth(4).locator('summary').click();
    await page.evaluate(()=>{Storage.prototype.setItem=function(){throw new DOMException('Test full storage','QuotaExceededError');};});
    await page.getByLabel('Имя репетитора',{exact:true}).fill('PENDING_TUTOR');
    await page.getByLabel('Имя репетитора',{exact:true}).press('Tab');
