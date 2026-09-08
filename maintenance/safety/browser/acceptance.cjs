@@ -97,6 +97,7 @@ const results=[];
    if(await menu.isVisible())await menu.click();
    await page.locator('#nav button').filter({hasText:'Помощь'}).click();
    const help=page.locator('#view .help-section');
+   await help.first().waitFor({state:'visible'});
    assert.equal(await help.count(),7,'Help has seven collapsible sections');
    assert.equal(await page.locator('#view .help-section[open]').count(),0,'Help initially collapsed');
    const beforeHelp=await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2'));
