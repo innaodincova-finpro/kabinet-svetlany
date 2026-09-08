@@ -121,6 +121,8 @@ const results=[];
    page.once('dialog',d=>d.accept());await page.reload();await pending.waitFor({state:'visible'});
    await pending.getByRole('button',{name:'Повторить запись',exact:true}).click();await pending.waitFor({state:'hidden'});
    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('tochka-resheniya-v2')).tutor),'PENDING_TUTOR','Fallback survives reload and retries');
+   if(await menu.isVisible())await menu.click();
+   await page.locator('#nav button').filter({hasText:'Сегодня'}).click();
    await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();
    const absent=page.locator('#lessonDlg button.pill').filter({hasText:'пропуск'}).first();
    await absent.click();
