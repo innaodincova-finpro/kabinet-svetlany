@@ -15,7 +15,8 @@ module.exports=async function(page,fixture,out,spec){
  await page.reload();await open();card=page.locator('#view .card').filter({hasText:'Постоянное расписание'});
  assert.match(await card.innerText(),/15:37/);assert.match(await card.innerText(),/11:00/);
  await card.getByRole('button',{name:'+ Добавить день',exact:true}).click();
- await dlg.getByLabel('День недели',{exact:true}).selectOption('2');await dlg.getByLabel('Время начала',{exact:true}).fill('18:45');
+ // A wrapping select label includes its option text in Playwright's label lookup.
+ await dlg.getByLabel(/^День недели/).selectOption('2');await dlg.getByLabel('Время начала',{exact:true}).fill('18:45');
  await dlg.getByRole('button',{name:'Проверить изменения',exact:true}).click();
  const box=await dlg.boundingBox();assert(box && box.x>=0 && box.x+box.width<=spec.width+1,'Dialog fits viewport');
  await dlg.getByRole('button',{name:'Сохранить',exact:true}).scrollIntoViewIfNeeded();
