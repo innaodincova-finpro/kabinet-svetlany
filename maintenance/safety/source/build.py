@@ -131,6 +131,8 @@ s=s.replace("if(p!=='granted'){autoFailed=true;safeStatus=", "if(p!=='granted'){
 s=s.replace("put('warn', safeStatus, [btn('Записать сейчас', () => autoSaveNow(true), true)]);", "put('warn', savingCopyText(), savingActions().map(([label,fn])=>btn(label,fn,true)));")
 s=s.replace("const n = $('#saveState');", "if(state==='ok')text=autoFailed?'Записи в браузере сохранены; копия не обновлена':'Записи сохранены в браузере';\n  const n = $('#saveState');")
 s=s.replace("  const b = safeBarEl();", "  if(!dataUnreadable&&!storageBroken&&!pendingSave&&!readOnlyTab&&helpSavedTime())saveLamp('ok','');\n  const b = safeBarEl();")
+exec((root/'source/standing.py').read_text())
 (root/'site/index.html').write_text(s)
 sw=(root/'site/sw.js').read_text().replace('svetlana-rollback-20260906-1','svetlana-homework-20260906-1').replace('svetlana-safety-20260906-1','svetlana-homework-20260906-1').replace('svetlana-homework-20260906-1','svetlana-homework-20260907-3')
+sw=sw.replace('svetlana-homework-20260907-3','svetlana-schedule-20260913-1')
 (root/'site/sw.js').write_text(sw)
