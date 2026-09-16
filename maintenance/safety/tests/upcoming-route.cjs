@@ -49,3 +49,17 @@ check('Individual route excludes passed topics and keeps other owners separate',
  assert.deepEqual(ids(a.upcomingTopics('group','g',3)),['t2','t1','t3']);
 });
 
+/* Карточка ученика и отчёт родителям должны говорить одно и то же: «Впереди»
+   считается по отметкам самого ученика, а не всей группы. */
+const aheadOf=blocks=>{const i=blocks.findIndex(b=>b.k==='b'&&b.t==='Что впереди');if(i<0)return [];
+ const out=[];for(let j=i+1;j<blocks.length&&blocks[j].k==='li';j++)out.push(blocks[j].t);return out};
+check('Parent report shows the same individual upcoming topics as the student card',()=>{
+ const {a,d,raw}=setup();
+ d.lessons=[{id:'l1',ownerType:'group',ownerId:'g',topicId:'t2',date:'2026-01-05',time:'10:00',duration:60,marks:{a:{s:'пропуск'},b:{s:'был'}}}];
+ a.setState(d);const before=JSON.stringify(d),storage=JSON.stringify(raw);
+ a.setPerson('s:a');
+ assert.ok(a.viewPersonCard().textContent.includes('Впереди: TOPIC t2 · TOPIC t1 · TOPIC t3'));
+ assert.deepEqual(aheadOf(a.reportBlocks(d.students[0],'2026-01')),['TOPIC t2','TOPIC t1','TOPIC t3']);
+ assert.deepEqual(aheadOf(a.reportBlocks(d.students[1],'2026-01')),['TOPIC t1','TOPIC t3','TOPIC t4']);
+ assert.equal(JSON.stringify(d),before);assert.equal(JSON.stringify(raw),storage);
+});
