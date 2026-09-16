@@ -22,3 +22,5 @@ node maintenance/safety/tests/standing.cjs
 node maintenance/safety/tests/lesson-time.cjs
 
 node maintenance/safety/tests/upgrade.cjs
+
+node maintenance/safety/tests/upcoming-route.cjs
