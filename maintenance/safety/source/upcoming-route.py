@@ -7,8 +7,12 @@ old='upcomingTopics(pType, pId, 3);'
 new='upcomingTopics(pType, pId, 3, isG ? null : id);'
 if s.count(old)!=1: raise ValueError("Upcoming route build anchor changed")
 s=s.replace(old,new)
+old="const ahead = upcomingTopics(isGroup ? 'group' : 'student', isGroup ? st.groupId : st.id, 3);"
+new="const ahead = upcomingTopics(isGroup ? 'group' : 'student', isGroup ? st.groupId : st.id, 3, st.id);"
+if s.count(old)!=1: raise ValueError("Upcoming route build anchor changed")
+s=s.replace(old,new)
 old='16 сентября 2026 · расписание 1.5'
-new='16 сентября 2026 · маршрут 1.6'
+new='16 сентября 2026 · маршрут 1.6.1'
 if s.count(old)!=1: raise ValueError("Upcoming route build anchor changed")
 s=s.replace(old,new)
 old='/* Темы, которые ученик или группа уже прошли: по отмеченным занятиям.\n   Маршрутов как шага больше нет — тема выбирается в карточке занятия. */'

@@ -853,7 +853,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '16 сентября 2026 · маршрут 1.6';
+const VERSION = '16 сентября 2026 · маршрут 1.6.1';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -3601,7 +3601,7 @@ function reportBlocks(st, month) {
   const allMarked = lessonsOfStudent(st.id).filter(l => markOf(l, st.id) && markOf(l, st.id).s === 'был');
   const doneIds = new Set(allMarked.map(l => l.topicId).filter(Boolean));
   const passed = doneIds.size;
-  const ahead = upcomingTopics(isGroup ? 'group' : 'student', isGroup ? st.groupId : st.id, 3);
+  const ahead = upcomingTopics(isGroup ? 'group' : 'student', isGroup ? st.groupId : st.id, 3, st.id);
 
   /* Считаем деньги ровно по тем занятиям, которые вошли в отчёт. Иначе
      сумма обгоняет список, и родитель видит счёт без занятий. */
