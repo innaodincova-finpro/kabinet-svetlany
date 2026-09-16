@@ -20,7 +20,10 @@ function storageEqual(before,after){
  const trim=s=>Object.fromEntries(Object.entries(s).filter(([k])=>k!=='tochka-place').sort(([a],[b])=>a.localeCompare(b)));
  const a=trim(after),b=trim(before);
  assert.deepEqual(Object.keys(a),Object.keys(b),'Storage key set changed');
- for(const key of Object.keys(b))assert.ok(a[key]===b[key],'Storage value changed: '+key);
+ for(const key of Object.keys(b)){
+  if(key===KEY+'-shadow'){const x=JSON.parse(b[key]),y=JSON.parse(a[key]);assert.deepEqual(y.d,x.d,'Storage value changed: '+key);assert.deepEqual(y.d,JSON.parse(a[KEY]),'Backup copy differs from main record');assert.ok(typeof y.at==='string','Backup copy time missing');continue;}
+  assert.ok(a[key]===b[key],'Storage value changed: '+key);
+ }
 }
 function correctionEqual(before,after){
  assert.equal(after.lessons.length,before.lessons.length);
