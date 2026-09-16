@@ -139,8 +139,10 @@ const results=[];
    await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();
    assert.equal(await page.locator('#lessonDlg button.pill').filter({hasText:'пропуск'}).first().getAttribute('aria-pressed'),'true','Attendance click alone survives reload');
    await require('./standing.cjs')(page,fixture,out,spec);
+   await require('./lesson-time.cjs')(page,fixture,out,spec);
+   await require('./upgrade.cjs')(origin,out,spec,pdf);
    assert.deepEqual(errors,[],'No browser runtime errors');assert.deepEqual(requests,[],'No external requests');
-   results.push({name:spec.name,passed:true,scenarios:['save-reload-personal-text-and-PDF','next-lesson-personal-answer','PDF-canvas-render','separate-checks-and-reports','narrow-form-controls']});console.log('PASS',spec.name);
+   results.push({name:spec.name,passed:true,scenarios:['save-reload-personal-text-and-PDF','next-lesson-personal-answer','PDF-canvas-render','separate-checks-and-reports','narrow-form-controls','incomplete-lesson-time','upgrade-preservation']});console.log('PASS',spec.name);
   }catch(e){results.push({name:spec.name,passed:false,error:e.stack,errors,requests});console.error('FAIL',spec.name,e.message);if(page){await page.screenshot({path:path.join(out,spec.name+'-failure.png')}).catch(()=>{});fs.writeFileSync(path.join(out,spec.name+'-failure.html'),await page.content().catch(()=>''));}}
   finally{if(context)await context.close();}
  }

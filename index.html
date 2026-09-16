@@ -826,12 +826,12 @@ const iso = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())
 const parseISO = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
 const mondayOf = d => addDays(d, -((d.getDay()+6) % 7));
-const toMin = t => { const [h,m] = t.split(':').map(Number); return h*60+m; };
+const toMin = t => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t ?? '')); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
 const toHM = m => `${pad2(Math.floor(m/60))}:${pad2(m%60)}`;
 const DOW = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
 const MON = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 const MONN = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-const fmtDate = s => { const d = parseISO(s); return `${d.getDate()} ${MON[d.getMonth()]}`; };
+const fmtDate = s => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s ?? ''))) return 'дата не указана'; const d = parseISO(s); return `${d.getDate()} ${MON[d.getMonth()]}`; };
 const fmtLong = d => `${DOW[(d.getDay()+6)%7]}, ${d.getDate()} ${MON[d.getMonth()]}`;
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function plural(n, one, few, many) {
@@ -853,7 +853,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '13 сентября 2026 · расписание 1.4';
+const VERSION = '16 сентября 2026 · расписание 1.5';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -1207,7 +1207,7 @@ function needsMark(l) {
   if (!ps.length) return !isMarked(l);
   return ps.some(st => !markOf(l, st.id));
 }
-const unmarkedLessons = () => S.lessons.filter(needsMark).sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1);
+const unmarkedLessons = () => S.lessons.filter(l => lessonOk(l) && needsMark(l)).sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1);
 
 /* Деньги ученика */
 const lessonsOfStudent = sid => S.lessons.filter(l => participants(l).some(st => st.id === sid));
@@ -1350,8 +1350,8 @@ function upcomingTopics(type, id, n) {
     .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)
     .map(l => l.topicId).filter(t => !seen.has(t) && seen.add(t)).slice(0, n || 3).map(t => topic(t)).filter(Boolean);
 }
-const lessonsOn = d => S.lessons.filter(l => l.date === d).sort((a,b) => toMin(a.time) - toMin(b.time));
-const lessonEnd = l => toMin(l.time) + l.duration;
+const lessonsOn = d => S.lessons.filter(l => l.date === d && lessonOk(l)).sort((a,b) => toMin(a.time) - toMin(b.time));
+const lessonEnd = l => toMin(l.time) + Number(l.duration);
 
 /* На групповом занятии дети разного уровня: у одной получилось, у другой нет,
    и домашнее задание тоже бывает разным. Поэтому кроме общей записи
@@ -1388,6 +1388,7 @@ function spreadSlots(ownerType, ownerId, fromISO, toISO) {
       if (s.dow !== dow) continue;
       const exists = S.lessons.some(l => l.date === dISO && l.ownerType === ownerType && l.ownerId === ownerId);
       if (exists) { skipped++; continue; }
+      if (!(Number(o.duration) > 0) || !lessonOk({date:dISO, time:s.time, duration:Number(o.duration)})) { skipped++; continue; }
       if (overlaps(dISO, s.time, o.duration)) { skipped++; continue; }
       S.lessons.push({
         id: uid(), date: dISO, time: s.time, duration: o.duration,
@@ -1413,8 +1414,9 @@ function firstFreeTime(date, duration) {
 }
 
 function overlaps(date, time, duration, exceptId) {
-  const s = toMin(time), e = s + duration;
-  return S.lessons.filter(l => l.date === date && l.id !== exceptId)
+  const s = toMin(time), e = s + Number(duration);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return null;
+  return S.lessons.filter(l => l.date === date && l.id !== exceptId && lessonOk(l))
     .find(l => s < lessonEnd(l) && toMin(l.time) < e) || null;
 }
 
@@ -2314,6 +2316,7 @@ function viewToday() {
   return el('div', {},
     head('Сегодня', fmtLong(now) + ' · ' + now.getFullYear(),
       el('button', {class:'btn btn-primary', onclick:() => newLesson(dISO)}, '+ Занятие')),
+    brokenLessonsBlock(),
     markCard ? el('div', {style:'margin-bottom:22px'}, markCard) : null,
     backupCard,
     el('div', {class:'today'}, rail, side)
@@ -2641,7 +2644,7 @@ function viewSchedule() {
   } else if (mode === 'month') {
     const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     const start = mondayOf(first);
-    const inMonthCount = S.lessons.filter(l => l.date.slice(0,7) === iso(first).slice(0,7)).length;
+    const inMonthCount = S.lessons.filter(l => lessonOk(l) && l.date.slice(0,7) === iso(first).slice(0,7)).length;
     sub = `${MONN[anchor.getMonth()]} ${anchor.getFullYear()} · ${inMonthCount} ${plural(inMonthCount,'занятие','занятия','занятий')} · серым — соседние месяцы`;
     const cells = [];
     for (let i = 0; i < 42; i++) {
@@ -2674,7 +2677,7 @@ function viewSchedule() {
   } else {
     const monday = mondayOf(anchor);
     const end = addDays(monday, 6);
-    const cnt = S.lessons.filter(l => l.date >= iso(monday) && l.date <= iso(end)).length;
+    const cnt = S.lessons.filter(l => lessonOk(l) && l.date >= iso(monday) && l.date <= iso(end)).length;
     const thisWeek = iso(mondayOf(new Date())) === iso(monday);
     sub = `${monday.getDate()} ${MON[monday.getMonth()]} — ${end.getDate()} ${MON[end.getMonth()]} · ${cnt} ${plural(cnt,'занятие','занятия','занятий')}` + (thisWeek ? ' · текущая неделя' : '');
     body = weekGrid(monday, null);
@@ -2686,15 +2689,17 @@ function viewSchedule() {
         onclick: exportCalendar}, 'В календарь'),
       el('button', {class:'btn btn-primary btn-sm', onclick:() => newLesson(iso(anchor))}, '+ Занятие')),
     el('div', {class:'row', style:'justify-content:space-between; margin-bottom:16px'}, modes, jump),
+    brokenLessonsBlock(),
     body,
     el('div', {class:'meta', style:'margin-top:12px'}, 'Контроль пересечений включён: два занятия не встанут на одно время.'));
 }
 
 function weekGrid(monday, onPick, exceptId) {
   const days = Array.from({length: 7}, (_, i) => iso(addDays(monday, i)));
-  const week = S.lessons.filter(l => days.includes(l.date));
+  const week = S.lessons.filter(l => days.includes(l.date) && lessonOk(l));
   // рабочие часы, расширенные под то, что реально стоит на этой неделе
-  let H0 = S.dayStart, H1 = S.dayEnd;
+  const hourOr = (v, d) => Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 24 ? Number(v) : d;
+  let H0 = hourOr(S.dayStart, 8), H1 = hourOr(S.dayEnd, 21);
   for (const l of week) {
     H0 = Math.min(H0, Math.floor(toMin(l.time) / 60));
     H1 = Math.max(H1, Math.ceil(lessonEnd(l) / 60));
@@ -2718,7 +2723,7 @@ function weekGrid(monday, onPick, exceptId) {
     g.append(el('div', {class:'hcell', text: pad2(h)+':00'}));
     for (let i = 0; i < 7; i++) {
       const d = addDays(monday, i), dISO = iso(d), time = pad2(h)+':00';
-      const starting = S.lessons.filter(l => l.date === dISO && toMin(l.time) >= h*60 && toMin(l.time) < (h+1)*60);
+      const starting = week.filter(l => l.date === dISO && toMin(l.time) >= h*60 && toMin(l.time) < (h+1)*60);
       const busy = overlaps(dISO, time, 60, exceptId);
       const past = dISO < todayISO || (dISO === todayISO && (h + 1) * 60 <= nowMin);
       const cell = el('div', {class:'cell' + (onPick ? (busy ? ' busy' : ' pick') : '') + (past ? ' past' : '')});
@@ -3803,7 +3808,7 @@ function viewHelpContent() {
           }, 'Очистить всё')),
         el('div', {style:'margin-top:14px; padding-top:14px; border-top:1px solid var(--line)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Сохранность данных'}),
-          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION + ' · сборка ' + helpDateTime('2026-09-08T06:07:31Z')),
+          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION + ' · сборка ' + helpDateTime('2026-09-16T06:36:16Z')),
           el('div', {class:'meta', style:'font-size:13px'},
             'Последняя копия: ' + (lastBackup() ? helpDateTime(helpBackupTime()) + ' (' + daysSinceBackup() + ' ' + plural(daysSinceBackup(),'день','дня','дней') + ' назад)' : 'ещё не сохранялась')),
           el('div', {class:'meta', style:'font-size:13px'},
@@ -3936,8 +3941,13 @@ function openLessonCard(L, isNew) {
   }
   const ownerSel = el('select', {}, ...ownerOpts.map(o => el('option', {value:o.v, selected:o.v === draft.ownerType+':'+draft.ownerId}, o.t)));
   const dateIn = el('input', {type:'date', value:draft.date});
-  const timeIn = el('input', {type:'time', value:draft.time, step:300});
-  const durSel = el('select', {}, ...[60,90,120].map(d => el('option', {value:d, selected:+draft.duration === d}, d + ' мин')));
+  const timeIn = el('input', {type:'time', value:draft.time, step:60});
+  const durChoices = [60, 90, 120];
+  const durKnown = typeof draft.duration === 'number' && Number.isFinite(draft.duration) && draft.duration > 0;
+  if (durKnown && !durChoices.includes(draft.duration)) durChoices.push(draft.duration);
+  const durSel = el('select', {},
+    durKnown ? null : el('option', {value:'', selected:true}, '— укажите —'),
+    ...durChoices.sort((a, b) => a - b).map(d => el('option', {value:d, selected:durKnown && draft.duration === d}, d + ' мин')));
   const topicSel = el('select', {});
   const planIn = el('textarea', {placeholder:'Готовый план занятия — например, вставленный из «План через ИИ»', style:'min-height:80px'});
   planIn.value = draft.plan || '';
@@ -4548,13 +4558,13 @@ function openLessonCard(L, isNew) {
       el('div', {},
         el('h2', {id:'lessonDlgT', text: isNew ? 'Новое занятие' : 'Карточка занятия'}),
         el('div', {class:'meta', text: isNew ? 'Одно занятие — одна карточка'
-          : `${fmtDate(draft.date)} · ${draft.time}` + (lessonNoText(L) ? ' · ' + lessonNoText(L) : '')})),
+          : lessonWhen(draft) + (lessonNoText(L) ? ' · ' + lessonNoText(L) : '')})),
       el('button', {class:'btn btn-ghost btn-sm', onclick: closeLesson}, '✕')),
     body,
     el('div', {class:'dlg-f'},
       !isNew ? el('button', {class:'btn btn-danger', onclick:() => ask(
         'Удалить занятие?',
-        `${ownerName(draft)}, ${fmtDate(draft.date)} в ${draft.time}. Запись исчезнет из расписания, а если занятие было проведено — и из ведомости оплат.`,
+        `${ownerName(draft)}, ${lessonWhen(draft)}. Запись исчезнет из расписания, а если занятие было проведено — и из ведомости оплат.`,
         'Удалить занятие',
         () => { S.lessons = S.lessons.filter(x => x.id !== draft.id); dlg.close(); save('Удалено занятие'); }, true)}, 'Удалить') : null,
       el('button', {class:'btn', title:'Собрать запрос для чата с ИИ',
@@ -4575,6 +4585,27 @@ function openLessonCard(L, isNew) {
     micStop(true);
     if (homeworkUploads) { toast('Дождитесь загрузки решения PDF'); return; }
     lessonDraft.write();
+    {
+      const missing = [];
+      const ownerParts = String(ownerSel.value || '').split(':');
+      if (!lessonOk({date:dateIn.value, time:'00:00', duration:1})) missing.push([dateIn, 'дату']);
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(timeIn.value)) missing.push([timeIn, 'время']);
+      if (!(Number(durSel.value) > 0)) missing.push([durSel, 'длительность']);
+      if (ownerParts.length !== 2 || !ownerParts[0] || !ownerParts[1]) missing.push([ownerSel, 'ученика или группу']);
+      [dateIn, timeIn, durSel, ownerSel].forEach(n => n.removeAttribute('aria-invalid'));
+      if (missing.length) {
+        missing.forEach(([n]) => n.setAttribute('aria-invalid', 'true'));
+        warn.textContent = 'Не сохранено: укажите ' + missing.map(x => x[1]).join(', ') + '. Всё введённое осталось в карточке.';
+        toast('Занятие не сохранено');
+        missing[0][0].focus();
+        return;
+      }
+      if (toMin(timeIn.value) + Number(durSel.value) > 1440) {
+        timeIn.setAttribute('aria-invalid', 'true');
+        warn.textContent = 'Не сохранено: занятие должно закончиться до полуночи.';
+        toast('Занятие не сохранено'); timeIn.focus(); return;
+      }
+    }
     const clash = overlaps(dateIn.value, timeIn.value, +durSel.value, draft.id);
     if (clash) { warn.textContent = `Не сохранить: время занято (${ownerName(clash)}).`; return; }
     const [ot, oid] = ownerSel.value.split(':');
@@ -5812,7 +5843,8 @@ function icsText(days) {
   const hhmm = m => pad2(Math.floor(m / 60)) + pad2(m % 60) + '00';
   const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Точка решения//Кабинет репетитора//RU', 'CALSCALE:GREGORIAN'];
   const list = S.lessons
-    .filter(l => l.date >= today && l.date <= last)
+    .filter(l => lessonOk(l) && l.date >= today && l.date <= last)
+    .filter(l => { const ms = Object.values(l.marks || {}).map(m => m && m.s).filter(Boolean); return !ms.length || ms.some(x => x !== 'пропуск' && x !== 'перенос'); })
     .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1);
   const now = new Date();
   const nowStamp = `${now.getUTCFullYear()}${pad2(now.getUTCMonth()+1)}${pad2(now.getUTCDate())}T${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}00Z`;
@@ -6756,7 +6788,7 @@ async function safeImportFile(file) {
   try {
     const decoded=await safeDecode(await file.text());
     ask('Восстановить кабинет из копии?',
-      'Ученики: '+decoded.data.students.length+'. Занятия: '+decoded.data.lessons.length+'. Оплаты: '+decoded.data.payments.length+'.\n'+(decoded.full?'Копия включает вложения.':'Это копия записей; наличие вложений проверим в браузере.')+'\nТекущее состояние будет сохранено отдельно перед заменой.',
+      'Ученики: '+decoded.data.students.length+'. Занятия: '+decoded.data.lessons.length+'. Оплаты: '+decoded.data.payments.length+'.\n'+(decoded.data.lessons.filter(l=>!lessonOk(l)).length?'Занятий без даты, времени или длительности: '+decoded.data.lessons.filter(l=>!lessonOk(l)).length+'. После восстановления они будут в списке «Требуют исправления».\n':'')+(decoded.full?'Копия включает вложения.':'Это копия записей; наличие вложений проверим в браузере.')+'\nТекущее состояние будет сохранено отдельно перед заменой.',
       'Восстановить',()=>safeInstall(decoded).catch(e=>toast(e.message)),true);
   }catch(e){toast('Копия не загружена: '+e.message)}
 }
@@ -6894,7 +6926,7 @@ function homeworkSolutionEditor(solution) {
     el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,el('button',{type:'button',class:'btn',onclick:()=>input.click()},'Выбрать PDF'),status,preview);
 }
 
-const HELP_RELEASE_AT = '2026-09-08T09:06:18.872107+00:00';
+const HELP_RELEASE_AT = '2026-09-16T06:36:16Z';
 // Presentation only: preserve original controls and their event handlers.
 
 function helpDateTime(value) {
@@ -7164,6 +7196,7 @@ function editStandingSlot(type,id,o,oldSlot=null) {
     prepared=null;preview.textContent='';
     const next={dow:Number(dow.value),time:time.value};
     if(!Number.isInteger(next.dow)||next.dow<0||next.dow>6||!/^([01]\d|2[0-3]):[0-5]\d$/.test(next.time)) {preview.textContent='Укажите день недели и время в формате ЧЧ:ММ.';return;}
+    if(!(Number(o.duration)>0)){preview.textContent='Сначала укажите длительность занятия в карточке.';return;}
     if(toMin(next.time)+Number(o.duration)>1440){preview.textContent='Занятие должно закончиться до полуночи.';return;}
     if(JSON.stringify(slotsOf(o))!==original || (oldSlot && originalIndex<0)){preview.textContent='Расписание изменилось. Закройте окно и откройте его снова.';return;}
     if(slotsOf(o).some((s,i)=>i!==originalIndex && s.dow===next.dow && toMin(next.time)<toMin(s.time)+Number(o.duration) && toMin(s.time)<toMin(next.time)+Number(o.duration))){preview.textContent='Этот день и время пересекаются с другим постоянным занятием.';return;}
@@ -7199,6 +7232,41 @@ function editStandingSlot(type,id,o,oldSlot=null) {
       el('button',{class:'btn',onclick:prepare},'Проверить изменения'),preview),
     el('div',{class:'dlg-f'},el('button',{class:'btn',onclick:()=>dlg.close()},'Отмена'),el('button',{class:'btn btn-primary',onclick:apply},'Сохранить')));
   dlg.showModal();
+}
+
+/* Lesson date, time and duration checks. Broken records stay in storage
+   unchanged and are listed for manual correction; nothing is invented. */
+function lessonProblems(l) {
+  if (!l || typeof l !== 'object') return ['запись повреждена'];
+  const p = [];
+  const dateOk = typeof l.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(l.date) && iso(parseISO(l.date)) === l.date;
+  const timeOk = typeof l.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(l.time);
+  const durOk = typeof l.duration === 'number' && Number.isFinite(l.duration) && l.duration > 0 && l.duration <= 1440;
+  if (!dateOk) p.push('не указана дата');
+  if (!timeOk) p.push('не указано время');
+  if (!durOk) p.push('не указана длительность');
+  if (timeOk && durOk && toMin(l.time) + l.duration > 1440) p.push('заканчивается после полуночи');
+  return p;
+}
+function lessonOk(l) { return !lessonProblems(l).length; }
+function brokenLessons() { return (S.lessons || []).filter(l => !lessonOk(l)); }
+function lessonWhen(l) {
+  const dateOk = typeof l.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(l.date);
+  const timeOk = typeof l.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(l.time);
+  return (dateOk ? fmtDate(l.date) : 'дата не указана') + ' · ' + (timeOk ? l.time : 'время не указано');
+}
+function brokenLessonsBlock() {
+  const list = brokenLessons();
+  if (!list.length) return null;
+  return el('div', {class:'card', id:'brokenLessons', role:'alert', style:'border-color:var(--stop); margin-bottom:16px'},
+    el('b', {text:`Требуют исправления: ${list.length} ${plural(list.length,'занятие','занятия','занятий')}`}),
+    el('div', {class:'meta', style:'font-size:12.5px; margin:4px 0 10px',
+      text:'У этих занятий не хватает даты, времени или длительности. В расписании они не показываются. Откройте карточку, укажите недостающее и сохраните.'}),
+    el('div', {class:'list'}, list.map(l => el('div', {class:'list-row', style:'grid-template-columns:1fr auto; gap:12px'},
+      el('div', {},
+        el('div', {class:'name', text: ownerName(l)}),
+        el('div', {class:'meta', style:'font-size:12.5px', text: [lessonWhen(l), ...lessonProblems(l).filter(x => x !== 'не указана дата' && x !== 'не указано время')].join(' · ')})),
+      el('button', {class:'btn btn-sm btn-primary', onclick:() => openLessonCard(l, false)}, 'Исправить')))));
 }
 
 dropOldDrafts();
