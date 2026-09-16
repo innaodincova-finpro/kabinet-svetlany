@@ -853,7 +853,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '16 сентября 2026 · расписание 1.5';
+const VERSION = '16 сентября 2026 · маршрут 1.6';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -1333,8 +1333,7 @@ function loadDemoAsk() {
 const allTopics = () => Object.entries(S.topicBank).flatMap(([cls, ts]) => ts.map(t => ({...t, cls})));
 const topic = id => allTopics().find(t => t.id === id) || null;
 const routeOf = (type, id) => S.routes.find(r => r.ownerType === type && r.ownerId === id) || null;
-/* Темы, которые ученик или группа уже прошли: по отмеченным занятиям.
-   Маршрутов как шага больше нет — тема выбирается в карточке занятия. */
+/* Пройденные темы: по посещённым занятиям, для ученика — по его отметкам. */
 function passedTopics(type, id, sid) {
   const seen = new Set();
   return S.lessons
@@ -1342,13 +1341,20 @@ function passedTopics(type, id, sid) {
     .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)
     .map(l => l.topicId).filter(t => !seen.has(t) && seen.add(t)).map(t => topic(t)).filter(Boolean);
 }
-/* Темы ближайших занятий — то, что впереди */
-function upcomingTopics(type, id, n) {
-  const today = iso(new Date()); const seen = new Set();
+/* Следующие непройденные темы маршрута; без маршрута — темы расписания. */
+function upcomingTopics(type, id, n, sid) {
+  const route = routeOf(type, id);
+  const seen = new Set();
+  if (route) {
+    const passed = new Set(passedTopics(type, id, sid).map(t => t.id));
+    return (route.topicIds || []).filter(tid => !passed.has(tid) && !seen.has(tid) && seen.add(tid))
+      .map(tid => topic(tid)).filter(Boolean).slice(0, n || 3);
+  }
+  const today = iso(new Date());
   return S.lessons
     .filter(l => l.ownerType === type && l.ownerId === id && l.topicId && !isMarked(l) && l.date >= today)
     .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)
-    .map(l => l.topicId).filter(t => !seen.has(t) && seen.add(t)).slice(0, n || 3).map(t => topic(t)).filter(Boolean);
+    .map(l => l.topicId).filter(t => !seen.has(t) && seen.add(t)).map(t => topic(t)).filter(Boolean).slice(0, n || 3);
 }
 const lessonsOn = d => S.lessons.filter(l => l.date === d && lessonOk(l)).sort((a,b) => toMin(a.time) - toMin(b.time));
 const lessonEnd = l => toMin(l.time) + Number(l.duration);
@@ -2442,7 +2448,7 @@ function viewPersonCard() {
   const pType = (!isG && o.type === 'группа') ? 'group' : (isG ? 'group' : 'student');
   const pId = (!isG && o.type === 'группа') ? o.groupId : id;
   const passedList = passedTopics(pType, pId, isG ? null : id);
-  const nextList = upcomingTopics(pType, pId, 3);
+  const nextList = upcomingTopics(pType, pId, 3, isG ? null : id);
   const routeCard = el('div', {class:'card'},
     el('div', {class:'row', style:'justify-content:space-between; margin-bottom:14px'},
       el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600',
