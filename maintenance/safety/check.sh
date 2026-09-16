@@ -19,3 +19,4 @@ node maintenance/safety/tests/pending-save.cjs
 node maintenance/safety/tests/saving-ui.cjs
 
 node maintenance/safety/tests/standing.cjs
+node maintenance/safety/tests/lesson-time.cjs
