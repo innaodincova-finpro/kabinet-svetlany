@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict'),path=require('node:path');
+module.exports=async function(page,fixture,out,spec){
+ const d=fixture();d.students[1].cls='6';d.topicBank={'5':[{id:'topic',title:'Дроби',goals:'ЦЕЛЬ ДРОБЕЙ'}]};d.lessons[0].topicId='topic';
+ await page.evaluate(d=>localStorage.setItem('tochka-resheniya-v2',JSON.stringify(d)),d);page.once('dialog',x=>x.accept());await page.reload();
+ const menu=page.locator('#menuBtn');if(await menu.isVisible())await menu.click();await page.locator('#nav button').filter({hasText:'Сегодня'}).click();
+ await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();const dlg=page.locator('#lessonDlg');
+ assert.equal(await dlg.locator('.per-pupil[open]').count(),0);
+ await dlg.getByLabel('Ученик в групповом занятии').selectOption('a');
+ await dlg.locator('.per-pupil textarea').first().fill('ЛИЧНЫЙ РЕЗУЛЬТАТ А');
+ await dlg.getByLabel('Ученик в групповом занятии').selectOption('b');await dlg.locator('.per-pupil textarea').first().fill('ЛИЧНЫЙ РЕЗУЛЬТАТ Б');
+ await dlg.getByLabel('Ученик в групповом занятии').selectOption('a');assert.equal(await dlg.locator('.per-pupil textarea').first().inputValue(),'ЛИЧНЫЙ РЕЗУЛЬТАТ А');
+ await dlg.getByLabel('Название занятия',{exact:true}).fill('Математическая викторина');await dlg.getByRole('button',{name:'Без привязки к программе',exact:true}).click();
+ await dlg.getByRole('button',{name:'Сохранить',exact:true}).click();await dlg.waitFor({state:'hidden'});await page.reload();
+ const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('tochka-resheniya-v2')));const l=saved.lessons.find(l=>l.id==='old');
+ assert.equal(l.topicId,null);assert.equal(l.lessonTitle,'Математическая викторина');assert.equal(l.per.a.result,'ЛИЧНЫЙ РЕЗУЛЬТАТ А');assert.equal(l.per.b.result,'ЛИЧНЫЙ РЕЗУЛЬТАТ Б');
+ await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();assert.equal(await dlg.getByLabel('Название занятия',{exact:true}).inputValue(),'Математическая викторина');
+ await dlg.getByRole('button',{name:'Отмена',exact:true}).click();
+ if(await menu.isVisible())await menu.click();await page.locator('#nav button').filter({hasText:'Отчёты'}).click();
+ await page.getByLabel('Класс в отчётах').selectOption('6');assert.equal(await page.getByLabel('Ученик в отчётах').locator('option').count(),1);assert.equal(await page.getByLabel('Ученик в отчётах').inputValue(),'b');
+ let text=await page.locator('#view .report').innerText();assert(text.includes('Математическая викторина'));assert(text.includes('ЛИЧНЫЙ РЕЗУЛЬТАТ Б'));assert(!text.includes('ЛИЧНЫЙ РЕЗУЛЬТАТ А'));assert(!text.includes('ЦЕЛЬ ДРОБЕЙ'));
+ await page.screenshot({path:path.join(out,spec.name+'-lesson-usability.png')});
+ console.log('PASS lesson usability',spec.name);
+};
