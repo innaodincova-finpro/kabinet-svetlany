@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),path=require('node:path');
 module.exports=async function(page,fixture,out,spec){
  const d=fixture();d.students[1].cls='6';d.topicBank={'5':[{id:'topic',title:'Дроби',goals:'ЦЕЛЬ ДРОБЕЙ'}]};d.lessons[0].topicId='topic';
- await page.evaluate(d=>localStorage.setItem('tochka-resheniya-v2',JSON.stringify(d)),d);page.once('dialog',x=>x.accept());await page.reload();
+ await page.evaluate(d=>localStorage.setItem('tochka-resheniya-v2',JSON.stringify(d)),d);page.removeAllListeners('dialog');page.once('dialog',x=>x.accept());await page.reload();page.removeAllListeners('dialog');
  const menu=page.locator('#menuBtn');if(await menu.isVisible())await menu.click();await page.locator('#nav button').filter({hasText:'Сегодня'}).click();
  await page.locator('#view button.lesson').filter({hasText:'09:00'}).click();const dlg=page.locator('#lessonDlg');
  assert.equal(await dlg.locator('.per-pupil[open]').count(),0);
