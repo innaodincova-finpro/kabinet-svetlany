@@ -1,0 +1,41 @@
+name: Materialize reviewed lesson usability files
+on:
+  push:
+    branches: [fix/lesson-usability]
+    paths: [.github/workflows/materialize-usability.yml]
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build exact reviewed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p maintenance/safety/site
+          git show d72c7d2e8ebab0573b3289c1f8bd726271dbe49d:index.html > maintenance/safety/source/baseline.html
+          git show d72c7d2e8ebab0573b3289c1f8bd726271dbe49d:sw.js > maintenance/safety/site/sw.js
+          python maintenance/safety/source/build.py
+          cp maintenance/safety/site/index.html index.html
+          cp maintenance/safety/site/sw.js sw.js
+          echo '727aa5e02215b37ce8a7991c1bdf75ae497203befc6fa889dab02908f6f1b84d  index.html' | sha256sum -c -
+          echo '8c7e331d9d8625259fe937e375f8586766b66efe36b82f828bd241401b906c40  sw.js' | sha256sum -c -
+          bash maintenance/safety/check.sh
+      - name: Save generated files only to correction branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- index.html sw.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Build verified lesson usability HTML and service worker"
+          git push origin HEAD:refs/heads/fix/lesson-usability
