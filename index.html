@@ -853,7 +853,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '16 сентября 2026 · маршрут 1.6';
+const VERSION = '30 сентября 2026 · занятия 1.7';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -2151,7 +2151,7 @@ function viewToday() {
           late ? el('span', {class:'chip chip-warn', text:'отметьте'}) : null,
           lessonNoText(l) ? el('span', {class:'chip chip-mute', text: lessonNoText(l)}) : null),
         el('div', {class:'who', text: ownerName(l) + (l.ownerType === 'group' ? ' · группа' : '')}),
-        el('div', {class:'what', text: t ? t.title : 'Тема не назначена'}))));
+        el('div', {class:'what', text: lessonTitle(l)}))));
     cursor = lessonEnd(l);
   });
   if (!nowShown && list.length) putNow();
@@ -2190,7 +2190,7 @@ function viewToday() {
       el('div', {class:'num', style:'font-size:12.5px;color:var(--muted); min-width:118px', text: fmtDate(l.date) + ' · ' + l.time}),
       el('div', {},
         el('div', {class:'name', text: ownerName(l) + (l.ownerType === 'group' ? ' · группа' : '')}),
-        el('div', {class:'meta', style:'font-size:12.5px', text: (l.topicId ? (topic(l.topicId)?.title || '') : 'тема не назначена') + (lessonNoText(l) ? ' · ' + lessonNoText(l) : '')})),
+        el('div', {class:'meta', style:'font-size:12.5px', text: lessonTitle(l) + (lessonNoText(l) ? ' · ' + lessonNoText(l) : '')})),
       el('div', {class:'row'},
         el('button', {class:'btn btn-sm', title:'Занятие состоялось, все были', onclick:() => quickMark(l, 'был')}, 'Проведено'),
         el('button', {class:'btn btn-sm', onclick:() => quickMark(l, 'пропуск')}, 'Пропуск'),
@@ -2280,7 +2280,7 @@ function viewToday() {
                 el('div', {class:'meta', style:'margin-bottom:6px', text:'На сегодня занятий больше нет'}),
                 el('div', {class:'name', style:'font-size:17px', text: ownerName(fut)}),
                 el('div', {class:'meta', style:'margin:2px 0 12px',
-                  text: `${when} в ${fut.time} · ${fut.duration} мин` + (t ? ' · ' + t.title : '')}),
+                  text: `${when} в ${fut.time} · ${fut.duration} мин` + (lessonTitle(fut, '') ? ' · ' + lessonTitle(fut, '') : '')}),
                 el('div', {class:'row'},
                   el('button', {class:'btn btn-primary btn-sm', onclick:() => openLesson(fut.id)}, 'Открыть карточку'),
                   el('button', {class:'btn btn-sm', onclick:() => { ui.schedMode = 'day'; ui.schedDate = fut.date; go('schedule'); }}, 'Открыть день')));
@@ -2480,7 +2480,7 @@ function viewPersonCard() {
     const t = l.topicId ? topic(l.topicId) : null;
     return el('div', {class:'list-row', style:'grid-template-columns:auto 1fr auto auto; padding:11px 4px'},
       el('div', {class:'num', style:'font-size:12.5px;color:var(--muted); min-width:120px', text: fmtDate(l.date) + ' · ' + l.time}),
-      el('div', {}, t ? t.title : el('span', {style:'color:var(--warn)'}, 'Тема не назначена')),
+      el('div', {}, lessonTitle(l)),
       statusChip(l, isG ? null : id),
       el('button', {class:'btn btn-ghost btn-sm', onclick:() => openLesson(l.id)}, 'Карточка'));
   };
@@ -2642,7 +2642,7 @@ function viewSchedule() {
         return el('div', {class:'list-row', style:'grid-template-columns:auto 1.6fr 1fr auto auto'},
           el('div', {class:'num', style:'color:var(--ink-2)', text: `${l.time}–${toHM(lessonEnd(l))}`}),
           el('div', {}, el('div',{class:'name',text:ownerName(l)}),
-            el('div',{class:'meta', text: (t ? t.title : 'Тема не назначена') + (lessonNoText(l) ? ' · ' + lessonNoText(l) : '')})),
+            el('div',{class:'meta', text: lessonTitle(l) + (lessonNoText(l) ? ' · ' + lessonNoText(l) : '')})),
           el('div', {class:'meta', text: (owner(l)||{}).format || ''}),
           statusChip(l, null),
           el('button', {class:'btn btn-ghost btn-sm', onclick:() => openLesson(l.id)}, 'Изменить'));
@@ -3413,7 +3413,7 @@ function viewMoney() {
           const m = markOf(l, st.id);
           rows.push([human ? fmtDate(l.date) : l.date, l.time, l.duration, ownerName(l),
             l.ownerType === 'group' ? 'группа' : 'индивидуально', st.name,
-            t ? t.title : '', m ? (MARK_LABEL[m.s] || m.s) + (m.s === 'пропуск' && m.reason ? ' — ' + m.reason : '') : 'не отмечено',
+            lessonTitle(l, ''), m ? (MARK_LABEL[m.s] || m.s) + (m.s === 'пропуск' && m.reason ? ' — ' + m.reason : '') : 'не отмечено',
             m && m.ch ? rateFor(l, st.id) : 0, resultFor(l, st.id), homeworkFor(l, st.id)]);
         }
       });
@@ -3507,8 +3507,14 @@ function viewMoney() {
 }
 
 /* ═══════════ 8. ОТЧЁТЫ РОДИТЕЛЯМ ═══════════ */
+function lessonTitle(l, fallback = 'Тема не назначена') {
+  return (l.lessonTitle || '').trim() || (l.topicId ? topic(l.topicId)?.title : '') || fallback;
+}
 function viewReports() {
-  const opts = liveStudents();
+  const all = liveStudents();
+  const classes = [...new Set(all.map(st => String(st.cls || '')))].sort((a,b) => +a - +b);
+  if (ui.reportClass && !classes.includes(ui.reportClass)) ui.reportClass = '';
+  const opts = all.filter(st => !ui.reportClass || String(st.cls || '') === ui.reportClass);
   if (!ui.reportId || !opts.some(s => s.id === ui.reportId)) ui.reportId = opts[0]?.id || null;
   if (!ui.reportId) return el('div', {}, head('Отчёты родителям',''), el('div',{class:'empty',text:'Сначала добавьте учеников.'}));
   const st = student(ui.reportId);
@@ -3559,7 +3565,10 @@ function viewReports() {
         `Отчёт — ${st.name} — ${monthName}`, 'docx', makeDocx(blocks),
         {ext:'txt', data: text, note:'Word здесь запрещён — сохранила текстом'})}, 'Скачать для Word')),
     el('div', {class:'filters'},
-      el('select', {onchange: e => { ui.reportId = e.target.value; render(); }, style:'min-width:240px'},
+      el('select', {'aria-label':'Класс в отчётах', onchange:e => { ui.reportClass=e.target.value; render(); }},
+        el('option', {value:'', selected:!ui.reportClass}, 'Все классы'),
+        ...classes.filter(Boolean).map(c => el('option', {value:c, selected:c===ui.reportClass}, c+' класс'))),
+      el('select', {'aria-label':'Ученик в отчётах', onchange: e => { ui.reportId = e.target.value; render(); }, style:'min-width:240px'},
         ...opts.map(s => el('option', {value:s.id, selected:s.id===ui.reportId}, `${s.name} · ${s.cls} класс`))),
       el('select', {onchange: e => { ui.reportMonth = e.target.value; render(); }},
         ...months.map(m => { const [y, mo] = m.split('-'); return el('option', {value:m, selected:m===month}, `${MONN[+mo-1]} ${y}`); }))),
@@ -3658,7 +3667,7 @@ function reportBlocks(st, month) {
         : '';
       const c = m.s === 'был' ? lessonCounts(l, st.id) : null;
       return [fmtDate(l.date) + (c ? ` · ${c.n}-е занятие` : '') + (m.s !== 'был' ? ` (${MARK_LABEL[m.s] || m.s}${m.s === 'пропуск' && m.reason ? ': ' + m.reason : ''})` : ''),
-        t ? t.title : 'тема не указана', (hw + resultFor(l, st.id)).trim() || '—', homeworkFor(l, st.id) || '—'];
+        lessonTitle(l), (hw + resultFor(l, st.id)).trim() || '—', homeworkFor(l, st.id) || '—'];
     })]});
 
   const learned = [...new Set(attended.map(l => l.topicId).filter(Boolean))].map(id => topic(id)).filter(Boolean);
@@ -3955,6 +3964,10 @@ function openLessonCard(L, isNew) {
     durKnown ? null : el('option', {value:'', selected:true}, '— укажите —'),
     ...durChoices.sort((a, b) => a - b).map(d => el('option', {value:d, selected:durKnown && draft.duration === d}, d + ' мин')));
   const topicSel = el('select', {});
+  const lessonTitleIn = el('input', {type:'text', 'aria-label':'Название занятия', placeholder:'Например, Математическая викторина', value:draft.lessonTitle || ''});
+  const freeTopicBtn = el('button', {type:'button', class:'btn btn-sm', onclick:() => {
+    pickTopic(''); topicSel.dispatchEvent(new Event('change',{bubbles:true})); lessonTitleIn.focus();
+  }}, 'Без привязки к программе');
   const planIn = el('textarea', {placeholder:'Готовый план занятия — например, вставленный из «План через ИИ»', style:'min-height:80px'});
   planIn.value = draft.plan || '';
   const noteIn = el('textarea', {placeholder:'Заметка к занятию'}); noteIn.value = draft.note || '';
@@ -4263,6 +4276,8 @@ function openLessonCard(L, isNew) {
      ученика или группы, набранное при этом не теряется — оно живёт в perData. */
   const perData = JSON.parse(JSON.stringify(savedExtras.perData || draft.per || {}));
   const perBox = el('div', {class:'card', style:'padding:14px; margin:4px 0; display:none'});
+  let perStudent = '';
+  const perExpanded = new Set();
   function renderPer() {
     const [ot, oid] = ownerSel.value.split(':');
     const people = participants({...draft, ownerType: ot, ownerId: oid});
@@ -4274,7 +4289,11 @@ function openLessonCard(L, isNew) {
         text:'Отдельно по каждому ученику'}),
       el('div', {class:'meta', style:'font-size:12.5px; margin-bottom:10px'},
         'У детей в группе разный уровень, и в отчёт родителям уходит именно личная запись. Оставите поле пустым — родителю уйдёт общий текст сверху.'));
-    for (const st of people) {
+    if (perStudent && !people.some(st => st.id === perStudent)) perStudent = '';
+    perBox.append(el('select', {'aria-label':'Ученик в групповом занятии', onchange:e => { perStudent=e.target.value; renderPer(); }},
+      el('option', {value:'', selected:!perStudent}, 'Все ученики'),
+      ...people.map(st => el('option', {value:st.id, selected:st.id===perStudent}, st.name))));
+    for (const st of people.filter(st => !perStudent || st.id === perStudent)) {
       const cur = perData[st.id] || (perData[st.id] = {result:'', homework:''});
       const rTa = el('textarea', {style:'min-height:56px', placeholder:`Что получилось у ${st.name.split(' ')[0]}, где затык`});
       rTa.value = cur.result || '';
@@ -4287,8 +4306,10 @@ function openLessonCard(L, isNew) {
       const errors = el('textarea',{placeholder:'Номер задания, ошибка ученика, что нужно повторить',oninput:e=>check.note=e.target.value}); errors.value=check.note || '';
       const prev = prevHomework({...draft,ownerType:ot,ownerId:oid,date:dateIn.value,time:timeIn.value},st.id);
       cur.hwSolution = cur.hwSolution || {};
-      perBox.append(el('div', {style:'padding:10px 0; border-top:1px solid var(--line-soft)'},
-        el('div', {class:'name', style:'margin-bottom:6px', text: st.name}),
+      perBox.append(el('details', {class:'per-pupil', open:perStudent===st.id || perExpanded.has(st.id) ? true : null,
+        ontoggle:e => { if(e.target.open) perExpanded.add(st.id); else perExpanded.delete(st.id); },
+        style:'padding:10px 0; border-top:1px solid var(--line-soft)'},
+        el('summary', {class:'name', style:'cursor:pointer; margin-bottom:6px', text: st.name}),
         bigField('Что получилось', rTa),
         el('div', {style:'margin-top:8px'}, bigField('Домашнее задание', hTa)),
         homeworkSolutionEditor(cur.hwSolution),
@@ -4487,7 +4508,9 @@ function openLessonCard(L, isNew) {
   const body = el('div', {class:'dlg-b'},
     el('div', {class:'two', style:'align-items:start'},
       el('label', {class:'field'}, el('span',{},'Ученик или группа'), ownerSel),
-      el('div', {class:'field'}, el('span', {style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600'}, 'Тема'), topicSel, topicBtn, topicPanel)),
+      el('div', {class:'field'}, el('span', {style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600'}, 'Тема'), topicSel, topicBtn, topicPanel,
+        freeTopicBtn, bigField('Название занятия (необязательно)', lessonTitleIn),
+        el('div', {class:'meta', text:'Можно указать своё название. Для урока вне программы нажмите «Без привязки к программе».'}))),
     el('div', {class:'three'},
       el('label', {class:'field'}, el('span',{},'Дата'), dateIn),
       el('label', {class:'field'}, el('span',{},'Время'), timeIn),
@@ -4518,7 +4541,7 @@ function openLessonCard(L, isNew) {
 
   const draftNoteBox = el('div');
   const lessonDraft = draftAttach('lesson:' + draft.id,
-    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn, restIn],
+    [ownerSel, topicSel, dateIn, timeIn, durSel, planIn, noteIn, resIn, hwIn, tellIn, restIn, lessonTitleIn],
     () => ({solution, hwChecks, perData, marks, hwCheck}));
   body.addEventListener('input', lessonDraft.write);
   body.addEventListener('change', lessonDraft.write);
@@ -4527,7 +4550,7 @@ function openLessonCard(L, isNew) {
      и при закрытии без сохранения честно спрашиваем. */
   let saving = false;
   const snapForm = () => JSON.stringify([
-    ownerSel.value, topicSel.value, dateIn.value, timeIn.value, durSel.value,
+    lessonTitleIn.value, ownerSel.value, topicSel.value, dateIn.value, timeIn.value, durSel.value,
     planIn.value, noteIn.value, resIn.value, hwIn.value, tellIn.value, restIn.value,
     hwCheck.s || '', hwNoteIn.value, JSON.stringify(marks), JSON.stringify(solution), JSON.stringify(hwChecks), JSON.stringify(perData)
   ]);
@@ -4578,7 +4601,7 @@ function openLessonCard(L, isNew) {
           ...draft,
           date: dateIn.value, time: timeIn.value, duration: +durSel.value,
           ownerType: ownerSel.value.split(':')[0], ownerId: ownerSel.value.split(':')[1],
-          topicId: topicSel.value || null
+          topicId: topicSel.value || null, lessonTitle:lessonTitleIn.value.trim()
         }))}, 'План через ИИ'),
       el('span', {style:'flex:1'}),
       el('button', {class:'btn', onclick: closeLesson}, 'Отмена'),
@@ -4617,7 +4640,7 @@ function openLessonCard(L, isNew) {
     const [ot, oid] = ownerSel.value.split(':');
     const data = {
       id: draft.id, date: dateIn.value, time: timeIn.value, duration: +durSel.value,
-      ownerType: ot, ownerId: oid, topicId: topicSel.value || null,
+      ownerType: ot, ownerId: oid, topicId: topicSel.value || null, lessonTitle: lessonTitleIn.value.trim(),
       plan: planIn.value.trim(), note: noteIn.value.trim(), materialIds: draft.materialIds || [],
       /* Причина живёт только у пропуска: сменили отметку — причина уходит,
          иначе она молча вернётся в отчёт при следующем пропуске. */
@@ -5856,7 +5879,7 @@ function icsText(days) {
   const nowStamp = `${now.getUTCFullYear()}${pad2(now.getUTCMonth()+1)}${pad2(now.getUTCDate())}T${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}00Z`;
   for (const l of list) {
     const o = owner(l);
-    const t = l.topicId ? (topic(l.topicId) || {}).title : '';
+    const t = lessonTitle(l, '');
     const meet = (o && o.format === 'онлайн') ? meetUrl(l.ownerType, l.ownerId) : '';
     const board = (o && o.format === 'онлайн') ? boardUrl(l.ownerType, l.ownerId) : '';
     const descr = [t ? 'Тема: ' + t : '', l.plan ? 'План: ' + l.plan : '',
@@ -6118,7 +6141,7 @@ function recentHistory(ownerType, ownerId, limit = 3) {
   if (!past.length) return '';
   return 'Что было на последних занятиях:\n' + past.map(l => {
     const t = l.topicId ? topic(l.topicId) : null;
-    return `- ${fmtDate(l.date)}, тема «${t ? t.title : 'не указана'}»`
+    return `- ${fmtDate(l.date)}, тема «${lessonTitle(l)}»`
       + (l.result ? `: ${l.result}` : '')
       + (l.homework ? ` (домашнее задание: ${l.homework})` : '');
   }).join('\n') + '\n\n';
@@ -6133,7 +6156,7 @@ function promptLessonPlan(l) {
     : `один ученик, ${cls} класс`;
   return 'Ты помогаешь репетитору по математике подготовить занятие.\n\n'
     + `Кто занимается: ${who}. Формат: ${o.format || 'офлайн'}. Длительность занятия: ${l.duration} минут.\n`
-    + `Тема занятия: «${t ? t.title : 'не назначена'}»${t && t.code ? ` (код по программе ${t.code})` : ''}.\n`
+    + `Тема занятия: «${lessonTitle(l)}»${t && t.code ? ` (код по программе ${t.code})` : ''}.\n`
     + (t && t.goals ? `\nЦели урока по учебной программе:\n${t.goals}\n` : '')
     + (t && t.std ? `\nСтандарты, которые закрываются:\n${t.std}\n` : '')
     + '\n' + recentHistory(l.ownerType, l.ownerId)
