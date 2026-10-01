@@ -3,6 +3,7 @@
 > План тарифов и отчётов от 1 октября: [RATES_REPORTS_PLAN.md](RATES_REPORTS_PLAN.md).
 > Приёмка этапа 3: [RATE_CORRECTION_ACCEPTANCE.md](RATE_CORRECTION_ACCEPTANCE.md).
 > Приёмка этапа 4: [UNIFIED_REPORT_ACCEPTANCE.md](UNIFIED_REPORT_ACCEPTANCE.md).
+> Приёмка этапа 5: [REPORT_LAYOUT_ACCEPTANCE.md](REPORT_LAYOUT_ACCEPTANCE.md).
 > Ниже сохранено историческое описание работ от 6 сентября; его ограничения проверок относятся к тому этапу.
 
 # Cabinet storage maintenance, 2026-09-06
