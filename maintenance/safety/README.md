@@ -1,3 +1,4 @@
+> Выпуск 1.8 опубликован: [RATES_REPORTS_RELEASE.md](RATES_REPORTS_RELEASE.md). [Инструкция Светлане](SVETLANA_1_8_GUIDE.md).
 > Текущий статус и следующий этап: [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 > Приёмка выпуска 30 сентября: [LESSON_USABILITY_ACCEPTANCE.md](LESSON_USABILITY_ACCEPTANCE.md).
 > План тарифов и отчётов от 1 октября: [RATES_REPORTS_PLAN.md](RATES_REPORTS_PLAN.md).
