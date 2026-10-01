@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict'),path=require('node:path');
 module.exports=async function(page,fixture,out,spec){
- const d=fixture();d.students.push({...d.students[0],id:'c',name:'TEST C'});d.groups[0].memberIds.push('c');
+ const d=JSON.parse(JSON.stringify(fixture()));d.payments=[{id:'test-payment',studentId:'a',amount:25,date:new Date().toISOString().slice(0,10)}];d.students.push({...d.students[0],id:'c',name:'TEST C'});d.groups[0].memberIds.push('c');
  await page.evaluate(d=>localStorage.setItem('tochka-resheniya-v2',JSON.stringify(d)),d);page.removeAllListeners('dialog');page.once('dialog',x=>x.accept());await page.reload();page.removeAllListeners('dialog');
  async function open(name){const menu=page.locator('#menuBtn');if(await menu.isVisible())await menu.click();await page.locator('#nav button').filter({hasText:'Ученики'}).click();await page.locator('#view .list-row').filter({has:page.locator('.name',{hasText:new RegExp('^'+name+'(?: |$)')})}).getByRole('button',{name:'Открыть',exact:true}).click();await page.getByRole('button',{name:'Редактировать',exact:true}).click();}
  await open('TEST GROUP');const dlg=page.locator('#formDlg');await dlg.locator('summary').filter({hasText:'Персональные цены участников'}).click();
