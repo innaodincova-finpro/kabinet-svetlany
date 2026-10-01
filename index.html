@@ -853,7 +853,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '30 сентября 2026 · занятия 1.7';
+const VERSION = '1 октября 2026 · тарифы 1.8';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -1157,10 +1157,16 @@ function participants(l) {
   return out;
 }
 /* Ставка по нынешним карточкам */
+function personalGroupRate(st, gid) {
+  const v = st?.groupRates?.[gid];
+  return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null;
+}
+function validTariff(v) { return String(v).trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0; }
 function liveRate(l, sid) {
-  if (l.ownerType === 'group') { const g = group(l.ownerId); return g ? g.rate : 0; }
+  if (l.ownerType === 'group') { const g = group(l.ownerId), personal = personalGroupRate(student(sid), l.ownerId); return personal ?? (g ? g.rate : 0); }
   const st = student(sid);
   if (!st) return 0;
+  if (validTariff(st.individualRate ?? '')) return Number(st.individualRate);
   if (st.rate) return st.rate;
   /* участник группы на отдельном занятии, если своя ставка не указана */
   const g = st.groupId ? group(st.groupId) : null;
@@ -2436,10 +2442,11 @@ function viewPersonCard() {
       el('div', {class:'lv'}, el('div',{class:'lab',text:'Формат'}), el('div',{class:'val',text:o.format})),
       el('div', {class:'lv'}, el('div',{class:'lab',text:'Длительность'}), el('div',{class:'val',text:o.duration + ' мин'}))),
     el('div', {class:'three'},
-      el('div', {class:'lv'}, el('div',{class:'lab',text: isG ? 'Ставка с участника' : 'Ставка за занятие'}), el('div',{class:'val', html:money(o.rate)})),
+      el('div', {class:'lv'}, el('div',{class:'lab',text: isG ? 'Общая ставка с участника' : 'Индивидуальное занятие'}), el('div',{class:'val', html:money(isG ? o.rate : liveRate({ownerType:'student'},o.id))})),
       isG ? el('div', {class:'lv'}, el('div',{class:'lab',text:'Участники'}), el('div',{class:'val', text: o.memberIds.map(i => student(i)?.name).filter(Boolean).join(', ') || 'пока никого'}))
           : el('div', {class:'lv'}, el('div',{class:'lab',text:'Родитель'}), el('div',{class:'val', text:o.parent || '—'})),
       isG ? el('div', {}) : el('div', {class:'lv'}, el('div',{class:'lab',text:'Телефон'}), el('div',{class:'val', text:o.phone || '—'}))),
+    !isG && o.groupId ? el('div', {class:'lv'}, el('div',{class:'lab',text:'Цена в группе'}), el('div',{class:'val',html:money(liveRate({ownerType:'group',ownerId:o.groupId},o.id))}), el('div',{class:'meta',text:personalGroupRate(o,o.groupId)===null?'По общей ставке группы':'Персональная цена'})) : null,
     !isG && o.note ? el('div', {class:'lv'}, el('div',{class:'lab',text:'Заметка'}), el('div',{class:'val', text:o.note})) : null
   );
 
@@ -3244,7 +3251,7 @@ function balanceChip(bal) {
 function payHint(st) {
   const bal = balanceOf(st.id);
   const mode = st.payMode || 'за занятие';
-  const rate = st.rate || (st.groupId ? (group(st.groupId)?.rate || 0) : 0);
+  const rate = liveRate(st.type==='группа' && st.groupId ? {ownerType:'group',ownerId:st.groupId} : {ownerType:'student'},st.id);
   if (mode === 'предоплата') {
     const need = bal >= 0 ? rate * 4 : rate * 4 - bal;
     return { sum: need > 0 ? need : rate * 4,
@@ -3300,7 +3307,7 @@ function addPayment(sid, preset) {
 function payFlag(st) {
   const mode = st.payMode || 'за занятие';
   const bal = balanceOf(st.id);
-  const rate = st.rate || (st.groupId ? (group(st.groupId)?.rate || 0) : 0);
+  const rate = liveRate(st.type==='группа' && st.groupId ? {ownerType:'group',ownerId:st.groupId} : {ownerType:'student'},st.id);
   if (mode === 'предоплата') {
     if (bal <= 0) return 'предоплата кончилась';
     if (rate && bal < rate * 2) return 'предоплата на исходе';
@@ -5167,7 +5174,13 @@ function editStudent(id) {
     ...S.groups.map(g => el('option', {value:g.id, selected:st?.groupId===g.id}, g.name)));
   const fmt = el('select', {}, ...['офлайн','онлайн'].map(f => el('option',{value:f, selected:(st?.format||'офлайн')===f}, f)));
   const dur = el('select', {}, ...[60,90,120].map(d => el('option',{value:d, selected:+(st?.duration||60)===d}, d + ' мин')));
-  const rate = el('input', {type:'number', value:st?.rate ?? 50, min:0});
+  const rate = el('input', {type:'number', 'aria-label':'Цена индивидуального занятия', value:st ? liveRate({ownerType:'student'},st.id) : 50, min:0, step:'0.01'});
+  const groupRates = {...(st?.groupRates || {})};
+  let rateGroupId = st?.groupId || '';
+  const groupRate = el('input', {type:'number', 'aria-label':'Персональная цена в группе', min:0, step:'0.01', value:groupRates[rateGroupId] ?? '', placeholder:'По ставке группы'});
+  function captureGroupRate() { if(rateGroupId) { if(groupRate.value.trim()==='')delete groupRates[rateGroupId]; else groupRates[rateGroupId]=groupRate.value; } }
+  grp.addEventListener('change',()=>{captureGroupRate();rateGroupId=grp.value;groupRate.value=groupRates[rateGroupId] ?? '';groupRate.disabled=!rateGroupId;});
+  groupRate.disabled=!rateGroupId;
   const payMode = el('select', {}, ...PAY_MODES.map(m => el('option', {value:m, selected:(st?.payMode || 'за занятие') === m}, m)));
   const parent = el('input', {type:'text', value:st?.parent || ''});
   const phone = el('input', {type:'text', value:st?.phone || ''});
@@ -5185,7 +5198,7 @@ function editStudent(id) {
     el('div', {class:'three'},
       el('label', {class:'field'}, el('span',{},'Формат'), fmt),
       el('label', {class:'field'}, el('span',{},'Длительность'), dur),
-      el('label', {class:'field'}, el('span',{},'Ставка'), rate)),
+      el('label', {class:'field'}, el('span',{},'Цена индивидуального занятия'), rate)),
     el('div', {class:'two'},
       el('label', {class:'field'}, el('span',{},'Родитель'), parent),
       el('label', {class:'field'}, el('span',{},'Телефон'), phone)),
@@ -5206,9 +5219,13 @@ function editStudent(id) {
           'Бесплатно и без регистрации: кабинет создаст ученику постоянную комнату на excalidraw.com')),
       el('div', {class:'meta', style:'font-size:12.5px; margin-top:4px'},
         'Отдельная доска для письма — если та, что внутри видео, не устраивает. Пусто — берётся общая доска из «Помощи», а если и её нет, пишут в видео.')),
-    bigField('Заметка', note)
+    bigField('Заметка', note),
+    el('label', {class:'field'}, el('span',{},'Персональная цена в выбранной группе'), groupRate),
+    el('div', {class:'meta', text:'Пусто — общая ставка группы. 0 — бесплатно. Индивидуальные и групповые уроки могут быть у одного ученика. Уже отмеченные занятия сохраняют прежнюю цену.'})
   ], () => {
     if (!name.value.trim()) return 'Введите имя.';
+    captureGroupRate();
+    if (!validTariff(rate.value) || Object.values(groupRates).some(v=>!validTariff(v))) return 'Цена должна быть числом не меньше нуля.';
     if (meetUrlIn.value.trim() && !normalizeMeet(meetUrlIn.value))
       return 'Ссылка на видео и доску не похожа на адрес. Скопируйте её из адресной строки браузера — или очистите поле, тогда кабинет создаст ссылку сам.';
     if (boardUrlIn.value.trim() && !normalizeMeet(boardUrlIn.value))
@@ -5216,10 +5233,11 @@ function editStudent(id) {
     const d = {
       name:name.value.trim(), cls:cls.value.trim() || '6', type:type.value,
       groupId: type.value === 'группа' ? (grp.value || null) : null,
-      format:fmt.value, duration:+dur.value, rate:+rate.value || 0, payMode: payMode.value,
+      format:fmt.value, duration:+dur.value, rate:+rate.value, individualRate:+rate.value, groupRates:Object.fromEntries(Object.entries(groupRates).map(([k,v])=>[k,Number(v)])), payMode: payMode.value,
       parent:parent.value.trim(), phone:phone.value.trim(), meetUrl: normalizeMeet(meetUrlIn.value),
       boardUrl: normalizeMeet(boardUrlIn.value), note:note.value.trim()
     };
+    S.lessons.forEach(freezeLesson);
     if (st) {
       S.groups.forEach(g => g.memberIds = g.memberIds.filter(m => m !== st.id));
       Object.assign(st, d);
@@ -5243,6 +5261,7 @@ function editGroup(id) {
   const rate = el('input', {type:'number', value:g?.rate ?? 40, min:0});
   const meetUrlIn = el('input', {type:'text', value:g?.meetUrl || '', placeholder:'необязательно — по умолчанию кабинет сам создаёт ссылку на Jitsi'});
   const boardUrlIn = el('input', {type:'text', value:g?.boardUrl || '', placeholder:'необязательно — своя доска для этой группы'});
+  const memberRates = S.students.map(st => ({sid:st.id, input:el('input',{type:'number', min:0, step:'0.01', 'aria-label':'Цена в группе: '+st.name, value:personalGroupRate(st,id) ?? '', placeholder:'По ставке группы'})}));
   const boxes = S.students.map(s => {
     const cb = el('input', {type:'checkbox', style:'width:auto', checked: g?.memberIds.includes(s.id) || false});
     cb.dataset.sid = s.id;
@@ -5256,7 +5275,7 @@ function editGroup(id) {
     el('div', {class:'three'},
       el('label', {class:'field'}, el('span',{},'Формат'), fmt),
       el('label', {class:'field'}, el('span',{},'Длительность'), dur),
-      el('label', {class:'field'}, el('span',{},'Ставка с участника'), rate)),
+      el('label', {class:'field'}, el('span',{},'Общая ставка с участника'), rate)),
     el('label', {class:'field'}, el('span',{},'Ссылка на видео'), meetUrlIn,
       el('span', {class:'meta', style:'font-size:12.5px; text-transform:none; letter-spacing:0; font-weight:400'},
         'Только для онлайн-занятий. Пусто — кабинет создаёт ссылку сам.')),
@@ -5273,7 +5292,10 @@ function editGroup(id) {
         'Отдельная доска для письма. Пусто — берётся общая доска из «Помощи».')),
     el('div', {class:'field'},
       el('span', {style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600'}, 'Состав группы'),
-      el('div', {style:'display:grid;gap:6px;margin-top:8px'}, boxes))
+      el('div', {style:'display:grid;gap:6px;margin-top:8px'}, boxes)),
+    el('details', {}, el('summary', {text:'Персональные цены участников'}),
+      el('div', {class:'meta', text:'Цены применяются только к выбранным участникам. Пусто — общая ставка группы; 0 — бесплатно. Прошлые отмеченные занятия не пересчитываются.'}),
+      ...memberRates.map(r=>el('label',{class:'field'},el('span',{text:student(r.sid).name}),r.input)))
   ], () => {
     if (!name.value.trim()) return 'Введите название.';
     if (meetUrlIn.value.trim() && !normalizeMeet(meetUrlIn.value))
@@ -5281,11 +5303,17 @@ function editGroup(id) {
     if (boardUrlIn.value.trim() && !normalizeMeet(boardUrlIn.value))
       return 'Ссылка на доску не похожа на адрес. Скопируйте её из адресной строки браузера.';
     const memberIds = boxes.map(b => b.querySelector('input')).filter(i => i.checked).map(i => i.dataset.sid);
+    if (!validTariff(rate.value) || memberRates.some(r=>memberIds.includes(r.sid)&&r.input.value.trim()!==''&&!validTariff(r.input.value))) return 'Цена должна быть числом не меньше нуля.';
+    S.lessons.forEach(freezeLesson);
     const d = {name:name.value.trim(), cls:cls.value.trim() || '6', format:fmt.value, duration:+dur.value, rate:+rate.value || 0,
       meetUrl: normalizeMeet(meetUrlIn.value), boardUrl: normalizeMeet(boardUrlIn.value), memberIds};
     let gid;
     if (g) { Object.assign(g, d); gid = g.id; }
     else { gid = uid(); S.groups.push({id:gid, ...d}); S.routes.push({id:uid(), ownerType:'group', ownerId:gid, topicIds:[]}); }
+    memberRates.filter(r=>memberIds.includes(r.sid)).forEach(r=>{
+      const st=student(r.sid);st.groupRates={...(st.groupRates||{})};
+      if(r.input.value.trim()==='')delete st.groupRates[gid];else st.groupRates[gid]=Number(r.input.value);
+    });
     S.students.forEach(s => {
       if (memberIds.includes(s.id)) { s.type = 'группа'; s.groupId = gid; }
       else if (s.groupId === gid) { s.groupId = null; s.type = 'индивидуально'; }
