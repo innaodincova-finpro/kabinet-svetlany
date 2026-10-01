@@ -26,3 +26,5 @@ node maintenance/safety/tests/upgrade.cjs
 node maintenance/safety/tests/upcoming-route.cjs
 
 node maintenance/safety/tests/lesson-usability.cjs
+
+node maintenance/safety/tests/personal-rates.cjs
