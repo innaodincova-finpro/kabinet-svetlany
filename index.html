@@ -5250,6 +5250,7 @@ function editStudent(id) {
     }
     save(id ? 'Изменён ученик' : 'Добавлен ученик');
   }, 'student:' + (id || 'new'));
+  rateGroupId=grp.value;groupRate.disabled=!rateGroupId;
 }
 
 function editGroup(id) {
