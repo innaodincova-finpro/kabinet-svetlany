@@ -12,6 +12,9 @@
 .report-sheet tr:nth-child(even){background:#f1f5f9}
 .report-sheet .report-total{font-weight:bold;background:#e6eef6}
 .report-sheet thead{display:table-header-group}
+.report-sheet tbody tr{display:table-row}
+.report-sheet tbody td,.report-sheet tbody td:first-child{display:table-cell;margin:0}
+.report-sheet tbody td::before{display:none;content:none}
 .report-print{margin:0;background:#edf2f6}
 .print-controls{max-width:836px;margin:20px auto;padding:15px;font:14px/1.5 ReportNoto,Arial,sans-serif}
 .print-controls button{font:inherit;padding:10px 18px;color:white;background:#28577f;border:0;border-radius:5px;cursor:pointer}

@@ -4,7 +4,7 @@ def change(old,new):
  assert old in s, 'Missing report layout anchor: '+old[:100]
  s=s.replace(old,new)
 css=(root/'source/report-layout.css').read_text().replace('__REPORT_FONT__',(root/'source/report-font.base64').read_text().strip())
-change('</style>',css+'\n</style>')
+s=s.replace('</head>','<style>'+css+'</style>\n</head>',1)
 change('function reportBlocks(st, month) {','const REPORT_STYLE='+json.dumps(css,ensure_ascii=False)+';\n'+(root/'source/report-layout.js').read_text()+'\nfunction reportBlocks(st, month) {')
 change("    el('div', {class:'report', text}));","    reportView(blocks));")
 anchor="      el('button',{class:'btn btn-sm',onclick:()=>editReportLink(st.id)},'Карточки одного ученика'),"
