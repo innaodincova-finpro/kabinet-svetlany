@@ -53,3 +53,6 @@ change("    !isG && o.note ?", """    !isG && o.groupId ? el('div', {class:'lv'}
     !isG && o.note ?""")
 change("const rate = st.rate || (st.groupId ? (group(st.groupId)?.rate || 0) : 0);", "const rate = liveRate(st.type==='группа' && st.groupId ? {ownerType:'group',ownerId:st.groupId} : {ownerType:'student'},st.id);")
 change('30 сентября 2026 · занятия 1.7', '1 октября 2026 · тарифы 1.8')
+
+# Restored form drafts may select a different group without firing change.
+change("  }, 'student:' + (id || 'new'));\n}", "  }, 'student:' + (id || 'new'));\n  rateGroupId=grp.value;groupRate.disabled=!rateGroupId;\n}")
