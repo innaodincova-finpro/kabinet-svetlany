@@ -13,7 +13,7 @@ function editPastRates(sid) {
   const from=el('input',{id:'ratesFrom',type:'date',value:iso(new Date(now.getFullYear(),now.getMonth(),1))});
   const to=el('input',{id:'ratesTo',type:'date',value:iso(now)});
   const list=el('div',{id:'ratesList'}),preview=el('div',{id:'ratesPreview','aria-live':'polite'});
-  const confirm=el('input',{id:'ratesConfirm',type:'checkbox'});
+  const confirm=el('input',{id:'ratesConfirm',type:'checkbox',style:'width:18px;height:18px;min-height:18px;flex:0 0 18px;padding:0;margin:3px 0'});
   let rows=[],boxes=[],listedSnapshot=null,prepared=null;
   const invalidatePreview=()=>{prepared=null;confirm.checked=false;preview.textContent='';};
   const invalidate=()=>{invalidatePreview();listedSnapshot=null;rows=[];boxes=[];list.textContent='Период изменён. Нажмите «Показать занятия».';};
@@ -24,7 +24,7 @@ function editPastRates(sid) {
     listedSnapshot=snapshot();
     if(!rows.length){list.textContent='За этот период нет прошедших занятий с начислением для этого ученика.';return;}
     rows.forEach(r=>{
-      const box=el('input',{type:'checkbox','aria-label':'Выбрать занятие '+r.date+' '+r.time,'data-lesson-id':r.id,disabled:!r.available||r.before===r.after});
+      const box=el('input',{type:'checkbox',style:'width:18px;height:18px;min-height:18px;flex:0 0 18px;padding:0;margin:3px 0','aria-label':'Выбрать занятие '+r.date+' '+r.time,'data-lesson-id':r.id,disabled:!r.available||r.before===r.after});
       box.addEventListener('change',invalidatePreview);boxes.push(box);
       list.append(el('label',{class:'card',style:'display:flex;gap:10px;align-items:flex-start;margin:8px 0;padding:12px;overflow-wrap:anywhere'},box,
         el('span',{},el('b',{text:fmtDate(r.date)+' · '+r.time+' · '+r.format}),el('div',{text:r.available?cash(r.before)+' → '+cash(r.after)+(r.before===r.after?' · цена уже совпадает':''):cash(r.before)+' · нет текущей цены: группа удалена'}))));
