@@ -32,3 +32,5 @@ node maintenance/safety/tests/personal-rates.cjs
 node maintenance/safety/tests/rate-correction.cjs
 
 node maintenance/safety/tests/unified-report.cjs
+
+node maintenance/safety/tests/report-layout.cjs
