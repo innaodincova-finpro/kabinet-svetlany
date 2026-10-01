@@ -3,7 +3,7 @@ function rateCorrectionRows(sid, from, to) {
   const validDate=v=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&iso(parseISO(v))===v;
   if(!student(sid)||!validDate(from)||!validDate(to)||from>to)return null;
   return lessonsOfStudent(sid).filter(l=>lessonOk(l)&&lessonOver(l)&&l.date>=from&&l.date<=to&&markOf(l,sid)?.ch)
-    .map(l=>({id:l.id,date:l.date,time:l.time,format:l.ownerType==='group'?'Групповое':'Индивидуальное',before:rateFor(l,sid),after:Number(liveRate(l,sid))}))
+    .map(l=>({id:l.id,date:l.date,time:l.time,format:l.ownerType==='group'?'Групповое':'Индивидуальное',before:rateFor(l,sid),after:Number(liveRate(l,sid)),available:l.ownerType!=='group'||!!group(l.ownerId)||personalGroupRate(student(sid),l.ownerId)!==null}))
     .filter(r=>Number.isFinite(r.before)&&r.before>=0&&Number.isFinite(r.after)&&r.after>=0)
     .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
 }
@@ -24,16 +24,16 @@ function editPastRates(sid) {
     listedSnapshot=snapshot();
     if(!rows.length){list.textContent='За этот период нет прошедших занятий с начислением для этого ученика.';return;}
     rows.forEach(r=>{
-      const box=el('input',{type:'checkbox','aria-label':'Выбрать занятие '+r.date+' '+r.time,'data-lesson-id':r.id,disabled:r.before===r.after});
+      const box=el('input',{type:'checkbox','aria-label':'Выбрать занятие '+r.date+' '+r.time,'data-lesson-id':r.id,disabled:!r.available||r.before===r.after});
       box.addEventListener('change',invalidatePreview);boxes.push(box);
       list.append(el('label',{class:'card',style:'display:flex;gap:10px;align-items:flex-start;margin:8px 0;padding:12px;overflow-wrap:anywhere'},box,
-        el('span',{},el('b',{text:fmtDate(r.date)+' · '+r.time+' · '+r.format}),el('div',{text:cash(r.before)+' → '+cash(r.after)+(r.before===r.after?' · цена уже совпадает':'')}))));
+        el('span',{},el('b',{text:fmtDate(r.date)+' · '+r.time+' · '+r.format}),el('div',{text:r.available?cash(r.before)+' → '+cash(r.after)+(r.before===r.after?' · цена уже совпадает':''):cash(r.before)+' · нет текущей цены: группа удалена'}))));
     });
   }
   function prepare(){
     invalidatePreview();
     if(listedSnapshot!==snapshot()){preview.textContent='Записи изменились или список ещё не получен. Нажмите «Показать занятия».';return;}
-    const selected=rows.filter((r,i)=>boxes[i].checked&&r.before!==r.after);
+    const selected=rows.filter((r,i)=>boxes[i].checked&&r.available&&r.before!==r.after);
     if(!selected.length){preview.textContent='Выберите занятия с изменением цены.';return;}
     prepared={snapshot:snapshot(),from:from.value,to:to.value,ids:selected.map(r=>r.id),rows:selected};
     const before=selected.reduce((n,r)=>n+r.before,0),after=selected.reduce((n,r)=>n+r.after,0);
@@ -43,7 +43,7 @@ function editPastRates(sid) {
   }
   function apply(){
     if(!prepared){preview.textContent='Сначала нажмите «Проверить изменения».';return;}
-    const selected=rows.filter((r,i)=>boxes[i].checked&&r.before!==r.after).map(r=>r.id);
+    const selected=rows.filter((r,i)=>boxes[i].checked&&r.available&&r.before!==r.after).map(r=>r.id);
     if(prepared.snapshot!==snapshot()||prepared.from!==from.value||prepared.to!==to.value||JSON.stringify(selected)!==JSON.stringify(prepared.ids)){
       invalidatePreview();listedSnapshot=null;preview.textContent='Записи или выбор изменились. Получите список и проверьте изменения заново.';return;
     }
