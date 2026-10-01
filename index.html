@@ -1319,6 +1319,7 @@ function deletePersonForever(kind, id) {
         S.payments = S.payments.filter(p => p.studentId !== id);
         S.groups.forEach(g => g.memberIds = g.memberIds.filter(x => x !== id));
         S.students = S.students.filter(s => s.id !== id);
+        if(S.reportPairs)S.reportPairs=S.reportPairs.filter(p=>!p.includes(id));
         S.routes = S.routes.filter(r => !(r.ownerType === 'student' && r.ownerId === id));
       }
       ui.personId = null;
@@ -2532,6 +2533,7 @@ function viewPersonCard() {
         onclick:() => sendMeetDialog(isG ? 'group' : 'student', id)}, 'Отправить ссылку') : null,
       el('button', {class:'btn btn-sm', onclick:() => isG ? editGroup(o.id) : editStudent(o.id)}, 'Редактировать'),
       !isG ? el('button',{class:'btn btn-sm',onclick:()=>editPastRates(o.id)},'Исправить прошлые начисления') : null,
+      !isG ? el('button',{class:'btn btn-sm',onclick:()=>editReportLink(o.id)},'Карточки одного ученика') : null,
       o.archived
         ? el('button', {class:'btn btn-sm', onclick:() => restorePerson(kind, id)}, 'Вернуть в кабинет')
         : el('button', {class:'btn btn-sm', onclick:() => archivePerson(kind, id)}, isG ? 'Убрать группу' : 'Убрать из кабинета'),
@@ -3519,7 +3521,7 @@ function lessonTitle(l, fallback = 'Тема не назначена') {
   return (l.lessonTitle || '').trim() || (l.topicId ? topic(l.topicId)?.title : '') || fallback;
 }
 function viewReports() {
-  const all = liveStudents();
+  const all = reportStudents();
   const classes = [...new Set(all.map(st => String(st.cls || '')))].sort((a,b) => +a - +b);
   if (ui.reportClass && !classes.includes(ui.reportClass)) ui.reportClass = '';
   const opts = all.filter(st => !ui.reportClass || String(st.cls || '') === ui.reportClass);
@@ -3528,7 +3530,7 @@ function viewReports() {
   const st = student(ui.reportId);
 
   const nowMonth = iso(new Date()).slice(0, 7);
-  const months = [...new Set([...S.lessons.map(l => l.date.slice(0,7)), nowMonth])].sort();
+  const months = [...new Set([...S.lessons.map(l => l.date.slice(0,7)), ...S.payments.map(p=>p.date.slice(0,7)), nowMonth])].sort();
   if (!ui.reportMonth || !months.includes(ui.reportMonth)) ui.reportMonth = nowMonth;
   const month = ui.reportMonth;
   const [ry, rm] = month.split('-').map(Number);
@@ -3561,11 +3563,11 @@ function viewReports() {
      поэтому предупреждаем прямо здесь. */
   const from = `${ry}-${pad2(rm)}-01`, to = `${ry}-${pad2(rm)}-${pad2(new Date(ry, rm, 0).getDate())}`;
   const todayISO = iso(new Date());
-  const unmarked = lessonsOfStudent(st.id)
-    .filter(l => l.date >= from && l.date <= to && lessonOver(l) && !markOf(l, st.id)).length;
+  const unmarked = reportData(st.id,month).unmarked;
 
   return el('div', {},
     head('Отчёты родителям', 'Собирается из отметок, тем и результатов занятий за выбранный месяц',
+      el('button',{class:'btn btn-sm',onclick:()=>editReportLink(st.id)},'Карточки одного ученика'),
       el('button', {class:'btn btn-sm', onclick:() => { navigator.clipboard?.writeText(text).then(() => toast('Отчёт скопирован'), () => toast('Не удалось скопировать')); }}, 'Скопировать'),
       el('button', {class:'btn btn-sm', title:'Собрать запрос для чата с ИИ',
         onclick:() => aiDialog('Письмо родителю — запрос для ИИ', () => promptParentLetter(st, month))}, 'Письмо через ИИ'),
@@ -3578,123 +3580,145 @@ function viewReports() {
         ...classes.filter(Boolean).map(c => el('option', {value:c, selected:c===ui.reportClass}, c+' класс'))),
       el('select', {'aria-label':'Ученик в отчётах', onchange: e => { ui.reportId = e.target.value; render(); }, style:'min-width:240px'},
         ...opts.map(s => el('option', {value:s.id, selected:s.id===ui.reportId}, `${s.name} · ${s.cls} класс`))),
-      el('select', {onchange: e => { ui.reportMonth = e.target.value; render(); }},
+      el('select', {'aria-label':'Месяц отчёта', onchange: e => { ui.reportMonth = e.target.value; render(); }},
         ...months.map(m => { const [y, mo] = m.split('-'); return el('option', {value:m, selected:m===month}, `${MONN[+mo-1]} ${y}`); }))),
     unmarked ? el('div', {class:'card', style:'border-color:var(--terra); margin-bottom:16px'},
       el('div', {class:'row', style:'justify-content:space-between'},
         el('div', {}, el('b', {text:`Не отмечено занятий: ${unmarked}`}),
           el('div', {class:'meta', style:'font-size:12.5px', text:'Пока не отмечено — в отчёт они не попадут.'})),
         el('button', {class:'btn btn-sm', onclick:() => go('today')}, 'Отметить'))) : null,
-    el('div', {class:'card', style:'margin-bottom:16px'}, bigField('Комментарий репетитора', noteBox)),
+    el('div', {class:'card', style:'margin-bottom:16px'}, reportIds(st.id).length>1 ? el('div',{class:'meta',text:'Связаны карточки: '+reportIds(st.id).map(id=>student(id).name).join(' / ')+'. Это поле редактирует комментарий карточки «'+st.name+'»; в отчёт входят комментарии обеих карточек.'}) : null, bigField('Комментарий репетитора', noteBox)),
     el('div', {class:'report', text}));
 }
 
 /* Отчёт собирается блоками: из них получается и текст на экране,
    и файл Word — чтобы не расходились. */
-function reportBlocks(st, month) {
-  month = month || iso(new Date()).slice(0, 7);
-  const [ry, rm] = month.split('-').map(Number);
-  const from = `${ry}-${pad2(rm)}-01`, to = `${ry}-${pad2(rm)}-${pad2(new Date(ry, rm, 0).getDate())}`;
-  const todayISO = iso(new Date());
-  const monthName = `${MONN[rm-1]} ${ry}`;
-
-  /* В отчёт входят только занятия, которые уже прошли: то, что стоит
-     сегодня вечером, ещё не событие — ни для списка, ни для суммы. */
-  const inMonth = lessonsOfStudent(st.id)
-    .filter(l => l.date >= from && l.date <= to && lessonOver(l))
-    .sort((a, b) => a.date < b.date ? -1 : 1);
-  const mine = inMonth.filter(l => markOf(l, st.id));
-  /* Неотмеченным считаем только то, что уже закончилось: занятие,
-     которое сегодня ещё впереди, отмечать пока нечего. */
-  const unmarked = inMonth.filter(l => !markOf(l, st.id) && lessonOver(l)).length;
-  const attended = mine.filter(l => markOf(l, st.id).s === 'был');
-  const missed = mine.filter(l => markOf(l, st.id).s === 'пропуск').length;
-  const moved = mine.filter(l => markOf(l, st.id).s === 'перенос').length;
-  const hours = Math.round(attended.reduce((s, l) => s + l.duration, 0) / 6) / 10;
-
-  /* Продвижение по программе считаем за всё время, а не только за месяц —
-     родителю важно, где ребёнок находится в целом. */
-  const isGroup = st.type === 'группа';
-  const allMarked = lessonsOfStudent(st.id).filter(l => markOf(l, st.id) && markOf(l, st.id).s === 'был');
-  const doneIds = new Set(allMarked.map(l => l.topicId).filter(Boolean));
-  const passed = doneIds.size;
-  const ahead = upcomingTopics(isGroup ? 'group' : 'student', isGroup ? st.groupId : st.id, 3);
-
-  /* Считаем деньги ровно по тем занятиям, которые вошли в отчёт. Иначе
-     сумма обгоняет список, и родитель видит счёт без занятий. */
-  const charged = mine.reduce((s, l) => { const m = markOf(l, st.id); return s + (m && m.ch ? rateFor(l, st.id) : 0); }, 0);
-  const paid = paidOf(st.id, from, to);
-  const bal = balanceOf(st.id);
-  const money = bal < 0 ? `к оплате ${num2(-bal)} ${S.currency}`
-    : bal > 0 ? `оплачено вперёд ${num2(bal)} ${S.currency}` : 'оплата закрыта';
-
-  const B = [];
-  B.push({k:'h', t:`Отчёт для родителей — ${st.name}, ${st.cls} класс`});
-  B.push({k:'sub', t:`${monthName} · репетитор ${S.tutor} · составлен ${fmtDate(todayISO)}`});
-
-  B.push({k:'b', t:'Коротко за месяц'});
-  /* «Проведено» раньше складывалось из всего подряд, включая пропуски
-     и переносы, и спорило со строкой «Посещено». Теперь каждая строка
-     говорит ровно об одном. */
-  const short = [['Показатель', 'Значение'],
-    ['Состоялось занятий', attended.length],
-    ['Пропущено', missed]];
-  if (moved) short.push(['Перенесено', moved]);
-  const hwDone = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'сделана').length;
-  const hwErr = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'ошибки').length;
-  const hwPart = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'частично').length;
-  const hwNo = mine.filter(l => homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s === 'нет').length;
-  if (hwDone + hwErr + hwPart + hwNo) short.push(['Домашняя работа',
-    [hwDone ? `сделана ${hwDone}` : '', hwErr ? `с ошибками ${hwErr}` : '', hwPart ? `частично ${hwPart}` : '', hwNo ? `не сделана ${hwNo}` : ''].filter(Boolean).join(', ')]);
-  short.push(['Учебных часов', hours]);
-  if (passed) short.push(['Пройдено тем за всё время', passed]);
-  short.push(['Занятия за месяц', `${num2(charged)} ${S.currency}`]);
-  short.push(['Оплачено за месяц', `${num2(paid)} ${S.currency}`]);
-  short.push(['Состояние оплаты', money]);
-  B.push({k:'table', widths:[3400, 5200], rows: short});
-
-  if (!mine.length) {
-    B.push({k:'p', t: inMonth.length
-      ? 'Занятия в этом месяце были, но пока не отмечены — как только отметим, они появятся в отчёте.'
-      : 'В этом месяце занятий не было.'});
-    /* Комментарий репетитора нужен и без занятий — иначе написанное
-       просто не попадает в отчёт. */
-    const note0 = (S.reportNotes || {})[st.id + ':' + month];
-    if (note0) { B.push({k:'b', t:'Комментарий репетитора'}); B.push({k:'p', t: note0}); }
-    return B;
-  }
-
-  B.push({k:'b', t:'Занятия месяца'});
-  B.push({k:'table', widths:[1400, 3000, 3000, 1800], rows: [
-    ['Дата', 'Тема', 'Что делали и как получилось', 'Домашнее задание'],
-    ...mine.map(l => {
-      const t = l.topicId ? topic(l.topicId) : null;
-      const m = markOf(l, st.id);
-      const hw = homeworkCheckFor(l, st.id) && homeworkCheckFor(l, st.id).s
-        ? `Домашняя работа: ${HW_LABEL[homeworkCheckFor(l, st.id).s]}${homeworkCheckFor(l, st.id).note ? ' — ' + homeworkCheckFor(l, st.id).note : ''}. `
-        : '';
-      const c = m.s === 'был' ? lessonCounts(l, st.id) : null;
-      return [fmtDate(l.date) + (c ? ` · ${c.n}-е занятие` : '') + (m.s !== 'был' ? ` (${MARK_LABEL[m.s] || m.s}${m.s === 'пропуск' && m.reason ? ': ' + m.reason : ''})` : ''),
-        lessonTitle(l), (hw + resultFor(l, st.id)).trim() || '—', homeworkFor(l, st.id) || '—'];
-    })]});
-
-  const learned = [...new Set(attended.map(l => l.topicId).filter(Boolean))].map(id => topic(id)).filter(Boolean);
-  if (learned.length) {
-    B.push({k:'b', t:'Что освоили в этом месяце'});
-    learned.forEach(t => B.push({k:'li', t: t.title + (t.goals ? ' — ' + String(t.goals).split('\n')[0] : '')}));
-  }
-  if (ahead.length) {
-    B.push({k:'b', t:'Что впереди'});
-    ahead.forEach(t => B.push({k:'li', t: t.title}));
-  }
-
-  const note = (S.reportNotes || {})[st.id + ':' + month];
-  if (note) { B.push({k:'b', t:'Комментарий репетитора'}); B.push({k:'p', t: note}); }
-
-  if (unmarked) B.push({k:'note', t:`Не отмечено занятий этого месяца: ${unmarked} — в отчёт они не вошли.`});
-  B.push({k:'note', t:`Вопросы по отчёту — репетитор ${S.tutor}.`});
-  return B;
+/* Links aggregate reports only. Original cards, lessons and payments keep their IDs. */
+function reportIds(sid) {
+  const pair=(S.reportPairs||[]).find(p=>p.includes(sid));
+  return pair ? pair.filter(id=>student(id)) : [sid];
 }
+function reportStudents() {
+  const seen=new Set();return liveStudents().filter(st=>{if(seen.has(st.id))return false;reportIds(st.id).forEach(id=>seen.add(id));return true;});
+}
+function reportEntries(ids) {
+  const entries=[],conflicts=[],seen=new Map();
+  for(const l of S.lessons){
+    const sourceIds=ids.filter(id=>participants(l).some(st=>st.id===id));
+    if(!sourceIds.length)continue;
+    if(sourceIds.length>1){conflicts.push(fmtDate(l.date)+' '+l.time+': обе карточки участвуют в одном занятии');continue;}
+    if(seen.has(l.id)){
+      if(seen.get(l.id)!==JSON.stringify(l))conflicts.push('Несовпадающие записи одного занятия: '+fmtDate(l.date));
+      continue;
+    }
+    seen.set(l.id,JSON.stringify(l));entries.push({lesson:l,sid:sourceIds[0]});
+  }
+  entries.sort((a,b)=>(a.lesson.date+a.lesson.time).localeCompare(b.lesson.date+b.lesson.time));
+  if(ids.length>1)entries.forEach((a,i)=>{
+    if(!lessonOk(a.lesson))return;
+    const b=entries.slice(0,i).find(b=>b.sid!==a.sid&&lessonOk(b.lesson)&&b.lesson.date===a.lesson.date&&toMin(a.lesson.time)<toMin(b.lesson.time)+b.lesson.duration&&toMin(b.lesson.time)<toMin(a.lesson.time)+a.lesson.duration);
+    if(b)conflicts.push(fmtDate(a.lesson.date)+' '+a.lesson.time+': занятия связанных карточек пересекаются по времени');
+  });
+  return {entries,conflicts};
+}
+function reportData(sid, month) {
+  const ids=reportIds(sid),{entries,conflicts}=reportEntries(ids),[y,m]=month.split('-').map(Number);
+  const from=`${y}-${pad2(m)}-01`,to=`${y}-${pad2(m)}-${pad2(new Date(y,m,0).getDate())}`;
+  const payments=[],seen=new Map();
+  for(const p of S.payments.filter(p=>ids.includes(p.studentId))){
+    if(seen.has(p.id)){if(seen.get(p.id)!==JSON.stringify(p))conflicts.push('Несовпадающие записи одной оплаты: '+fmtDate(p.date));continue;}
+    seen.set(p.id,JSON.stringify(p));payments.push(p);
+  }
+  const inMonth=entries.filter(({lesson:l})=>lessonOk(l)&&lessonOver(l)&&l.date>=from&&l.date<=to);
+  const mine=inMonth.filter(({lesson:l,sid})=>markOf(l,sid));
+  const amount=({lesson:l,sid})=>markOf(l,sid)?.ch?rateFor(l,sid):0;
+  const formats=['student','group'].map(type=>{
+    const rows=mine.filter(e=>(e.lesson.ownerType==='group'?'group':'student')===type);
+    const attended=rows.filter(e=>markOf(e.lesson,e.sid).s==='был');
+    return {type,label:type==='group'?'Групповые':'Индивидуальные',attended:attended.length,minutes:attended.reduce((n,e)=>n+e.lesson.duration,0),billed:rows.filter(e=>markOf(e.lesson,e.sid).ch).length,charged:rows.reduce((n,e)=>n+amount(e),0)};
+  });
+  return {ids,entries,inMonth,mine,formats,conflicts,unmarked:inMonth.length-mine.length,
+    charged:mine.reduce((n,e)=>n+amount(e),0),paid:payments.filter(p=>p.date>=from&&p.date<=to).reduce((n,p)=>n+(Number(p.amount)||0),0),
+    balance:payments.reduce((n,p)=>n+(Number(p.amount)||0),0)-entries.reduce((n,e)=>n+amount(e),0)};
+}
+function editReportLink(sid) {
+  const st=student(sid);if(!st)return;
+  const dlg=$('#pickDlg'),original=snapshot(),pair=reportIds(sid),peer=pair.find(id=>id!==sid)||'';
+  const label=st=>st.name+' · '+(st.cls||'—')+' класс · '+(st.type||'индивидуально')+(st.archived?' · архив':'')+' · занятий: '+lessonsOfStudent(st.id).length;
+  const candidates=S.students.filter(s=>s.id!==sid&&(s.id===peer||reportIds(s.id).length===1));
+  const sel=el('select',{id:'reportLinkPeer',style:'width:100%;min-width:0'},el('option',{value:'',selected:!peer},'Без связи — отдельный отчёт'),...candidates.map(s=>el('option',{value:s.id,selected:s.id===peer},label(s))));
+  const preview=el('div',{id:'reportLinkPreview','aria-live':'polite'});
+  const confirm=el('input',{id:'reportLinkConfirm',type:'checkbox',style:'width:18px;height:18px;flex:0 0 18px;margin:3px 0'});
+  let prepared=null;
+  sel.addEventListener('change',()=>{prepared=null;confirm.checked=false;preview.textContent='';});
+  function prepare(){
+    prepared=null;confirm.checked=false;preview.textContent='';
+    if(original!==snapshot()){preview.textContent='Записи изменились. Закройте окно и откройте снова.';return;}
+    if(sel.value===peer){preview.textContent='Связь не изменилась.';return;}
+    const other=sel.value?student(sel.value):null;
+    if(sel.value&&(!other||other.id===sid||reportIds(other.id).length>1)){preview.textContent='Эта карточка недоступна для связи.';return;}
+    if(other){
+      const conflicts=reportEntries([sid,other.id]).conflicts;
+      if(conflicts.length){preview.append(el('p',{text:'Связь не создана: нельзя однозначно собрать отчёт. Сначала проверьте эти занятия в исходных карточках.'}),...conflicts.map(t=>el('p',{text:t})));return;}
+      preview.append(el('p',{text:'Один отчёт будет включать обе карточки: '+label(st)+'; '+label(other)+'.'}));
+      if(peer)preview.append(el('p',{text:'Прежняя связь с «'+student(peer).name+'» будет снята.'}));
+    }else preview.append(el('p',{text:'Связь будет снята. Отчёты снова будут отдельными.'}));
+    preview.append(el('p',{text:'Ученики, занятия, цены, оплаты и комментарии останутся в исходных карточках. Связь можно снять в этом же окне.'}));
+    prepared=sel.value;
+  }
+  function apply(){
+    if(prepared===null){preview.textContent='Сначала нажмите «Проверить связь».';return;}
+    if(original!==snapshot()||prepared!==sel.value){prepared=null;preview.textContent='Записи или выбор изменились. Откройте окно заново.';return;}
+    if(!confirm.checked){preview.append(el('p',{text:'Подтвердите выбранное действие галочкой.'}));return;}
+    if(dataUnreadable||readOnlyTab||pendingSave||storageBroken){preview.textContent='Сейчас запись недоступна. Сначала устраните проблему сохранения.';return;}
+    S.reportPairs=(S.reportPairs||[]).filter(p=>!p.includes(sid));
+    if(prepared)S.reportPairs.push([sid,prepared]);
+    if(save('Связь карточек для отчёта: '+st.name)){dlg.close();toast('Связь для отчёта сохранена');}
+    else{prepared=null;preview.textContent='Связь пока не сохранена. Следуйте сообщению о восстановлении записи.';}
+  }
+  dlg.textContent='';dlg.style.maxWidth='min(640px,96vw)';
+  dlg.append(el('div',{class:'dlg-h'},el('h2',{id:'pickDlgT',text:'Карточки одного ученика'}),el('button',{class:'btn btn-ghost btn-sm','aria-label':'Закрыть',onclick:()=>dlg.close()},'✕')),
+    el('div',{class:'dlg-b',style:'overflow-wrap:anywhere'},el('b',{text:label(st)}),
+      el('p',{class:'meta',text:'Нужно только если один и тот же ученик раньше был заведён дважды. Одной карточки достаточно для индивидуальных и групповых занятий. Не связывайте разных детей, даже если у них один родитель или одинаковая фамилия.'}),
+      el('label',{class:'field',for:'reportLinkPeer'},'Вторая карточка этого же ученика',sel),el('button',{class:'btn',onclick:prepare},'Проверить связь'),preview,
+      el('label',{for:'reportLinkConfirm',style:'display:flex;gap:10px;margin-top:16px'},confirm,'Подтверждаю выбранное действие; при связывании это один и тот же ученик')),
+    el('div',{class:'dlg-f'},el('button',{class:'btn',onclick:()=>dlg.close()},'Отмена'),el('button',{class:'btn btn-primary',onclick:apply},'Сохранить связь')));
+  dlg.showModal();
+}
+function reportBlocks(st, month) {
+  month=month||iso(new Date()).slice(0,7);
+  const [y,m]=month.split('-').map(Number),data=reportData(st.id,month),B=[];
+  B.push({k:'h',t:`Отчёт для родителей — ${st.name}, ${st.cls} класс`},{k:'sub',t:`${MONN[m-1]} ${y} · репетитор ${S.tutor} · составлен ${fmtDate(iso(new Date()))}`});
+  if(data.conflicts.length){B.push({k:'b',t:'Отчёт требует проверки'},{k:'p',t:'Связанные карточки содержат неоднозначные записи. Итог не рассчитан. Проверьте записи или снимите связь карточек.'},...data.conflicts.map(t=>({k:'p',t})));return B;}
+  const mine=data.mine,attended=mine.filter(e=>markOf(e.lesson,e.sid).s==='был');
+  const missed=mine.filter(e=>markOf(e.lesson,e.sid).s==='пропуск').length,moved=mine.filter(e=>markOf(e.lesson,e.sid).s==='перенос').length;
+  const short=[['Показатель','Значение'],['Состоялось занятий',attended.length],['Пропущено',missed]];
+  if(moved)short.push(['Перенесено',moved]);
+  const checks=['сделана','ошибки','частично','нет'].map(s=>({s,n:mine.filter(e=>homeworkCheckFor(e.lesson,e.sid)?.s===s).length})).filter(x=>x.n);
+  if(checks.length)short.push(['Домашняя работа',checks.map(x=>HW_LABEL[x.s]+' '+x.n).join(', ')]);
+  short.push(['Часов занятий (60 минут)',num2(attended.reduce((n,e)=>n+e.lesson.duration,0)/60)],['Начислено за месяц',cash(data.charged)],['Оплачено за месяц',cash(data.paid)],['Общий баланс по всем записям',data.balance<0?'Долг '+cash(-data.balance):data.balance>0?'Аванс '+cash(data.balance):'Расчёты закрыты']);
+  B.push({k:'b',t:'Коротко за месяц'},{k:'table',widths:[3400,5200],rows:short});
+  B.push({k:'b',t:'Занятия и начисления по форматам'},{k:'table',widths:[2200,1300,1600,1700,1800],rows:[['Формат','Посещено','Часов (60 мин)','С начислением','Начислено'],...data.formats.map(f=>[f.label,f.attended,num2(f.minutes/60),f.billed,cash(f.charged)]),['Всего',attended.length,num2(attended.reduce((n,e)=>n+e.lesson.duration,0)/60),data.formats.reduce((n,f)=>n+f.billed,0),cash(data.charged)]]},
+    {k:'note',t:'Пропуски с начислением включены в стоимость, но не в часы посещения. Оплаты показаны общей суммой без распределения по форматам. Общий баланс учитывает все записи, а не только этот месяц.'});
+  if(data.ids.length>1)B.push({k:'note',t:'Отчёт по двум связанным карточкам: '+data.ids.map(id=>student(id).name).join(' / ')+'. Исходные записи сохранены отдельно.'});
+  if(mine.length){
+    B.push({k:'b',t:'Занятия месяца'},{k:'table',widths:[1400,1800,2200,1800,1400],rows:[['Дата и формат','Тема','Что делали и как получилось','Домашнее задание','Начислено'],...mine.map(({lesson:l,sid})=>{
+      const mark=markOf(l,sid),check=homeworkCheckFor(l,sid);
+      const hw=check?.s?'Домашняя работа: '+HW_LABEL[check.s]+(check.note?' — '+check.note:'')+'. ':'';
+      return [fmtDate(l.date)+' '+l.time+' · '+(l.ownerType==='group'?'групповое':'индивидуальное')+(mark.s!=='был'?' · '+(MARK_LABEL[mark.s]||mark.s)+(mark.reason?': '+mark.reason:''):''),lessonTitle(l),(hw+resultFor(l,sid)).trim()||'—',homeworkFor(l,sid)||'—',cash(mark.ch?rateFor(l,sid):0)];
+    })]});
+    const topics=[...new Set(attended.map(e=>e.lesson.topicId).filter(Boolean))].map(id=>topic(id)).filter(Boolean);
+    if(topics.length)B.push({k:'b',t:'Темы проведённых занятий'},...topics.map(t=>({k:'li',t:t.title})));
+    const owners=new Map();
+    data.ids.map(student).filter(Boolean).forEach(s=>{owners.set('student:'+s.id,['student',s.id]);if(s.groupId&&group(s.groupId))owners.set('group:'+s.groupId,['group',s.groupId]);});
+    const ahead=[...new Map([...owners.values()].flatMap(([type,id])=>upcomingTopics(type,id,3)).map(t=>[t.id,t])).values()];
+    if(ahead.length)B.push({k:'b',t:'Что впереди по плану'},...ahead.map(t=>({k:'li',t:t.title})));
+  }else B.push({k:'p',t:data.inMonth.length?'Занятия пока не отмечены — после отметки они появятся в отчёте.':'За этот месяц нет прошедших занятий.'});
+  for(const id of data.ids){const note=(S.reportNotes||{})[id+':'+month];if(note)B.push({k:'b',t:'Комментарий репетитора'+(data.ids.length>1?' · '+student(id).name:'')},{k:'p',t:note});}
+  if(data.unmarked)B.push({k:'note',t:`Не отмечено занятий этого месяца: ${data.unmarked} — в отчёт они не вошли.`});
+  B.push({k:'note',t:`Вопросы по отчёту — репетитор ${S.tutor}.`});return B;
+}
+
 
 /* Тот же отчёт словами — для экрана и для отправки сообщением */
 function buildReport(st, month) {
@@ -5794,6 +5818,7 @@ function clearPeopleAsk() {
     'Вернуть можно кнопкой «↶ Отменить» сразу после.',
     'Убрать учеников и занятия', () => {
       S.students = [];
+      if(S.reportPairs)S.reportPairs=[];
       S.groups = [];
       S.lessons = [];
       S.payments = [];
@@ -6727,6 +6752,14 @@ function safePrepare(input) {
   if (!d.topicBank || typeof d.topicBank !== 'object' || Array.isArray(d.topicBank) || typeof d.tutor !== 'string') throw new Error('Нет методики или настроек');
   for (const topics of Object.values(d.topicBank)) if (!Array.isArray(topics) || topics.some(t=>!t || typeof t.title !== 'string')) throw new Error('Повреждён список тем');
   for (const g of d.groups) if (!Array.isArray(g.memberIds)) throw new Error('Повреждён состав группы');
+  if(d.reportPairs!==undefined){
+    const linked=new Set(),ids=new Set(d.students.map(st=>st.id));
+    if(!Array.isArray(d.reportPairs))throw new Error('Повреждены связи карточек для отчётов');
+    for(const pair of d.reportPairs){
+      if(!Array.isArray(pair)||pair.length!==2||pair[0]===pair[1]||pair.some(id=>!ids.has(id)||linked.has(id)))throw new Error('Повреждены связи карточек для отчётов');
+      pair.forEach(id=>linked.add(id));
+    }
+  }
   // Missing historical material references are retained, not treated as a fatal error.
   delete d[SAFE_META];
   return migrate(d);
