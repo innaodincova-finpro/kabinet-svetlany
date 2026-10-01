@@ -3912,7 +3912,7 @@ function viewHelpContent() {
           }, 'Очистить всё')),
         el('div', {style:'margin-top:14px; padding-top:14px; border-top:1px solid var(--line)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Сохранность данных'}),
-          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION + ' · сборка ' + helpDateTime('2026-09-16T06:36:16Z')),
+          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION + ' · сборка ' + helpDateTime('2026-10-01T05:16:57Z')),
           el('div', {class:'meta', style:'font-size:13px'},
             'Последняя копия: ' + (lastBackup() ? helpDateTime(helpBackupTime()) + ' (' + daysSinceBackup() + ' ' + plural(daysSinceBackup(),'день','дня','дней') + ' назад)' : 'ещё не сохранялась')),
           el('div', {class:'meta', style:'font-size:13px'},
@@ -7075,7 +7075,7 @@ function homeworkSolutionEditor(solution) {
     el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,el('button',{type:'button',class:'btn',onclick:()=>input.click()},'Выбрать PDF'),status,preview);
 }
 
-const HELP_RELEASE_AT = '2026-09-16T06:36:16Z';
+const HELP_RELEASE_AT = '2026-10-01T05:16:57Z';
 // Presentation only: preserve original controls and their event handlers.
 
 function helpDateTime(value) {
