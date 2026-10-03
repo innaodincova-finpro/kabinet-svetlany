@@ -877,7 +877,7 @@ function toast(msg) {
 }
 
 /* ═══════════ ХРАНИЛИЩЕ ═══════════ */
-const VERSION = '1 октября 2026 · тарифы 1.8';
+const VERSION = '3 октября 2026 · оплата и темы 1.8.1';
 const KEY = 'tochka-resheniya-v2';
 let S, saveTimer;
 
@@ -1372,12 +1372,20 @@ function passedTopics(type, id, sid) {
     .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)
     .map(l => l.topicId).filter(t => !seen.has(t) && seen.add(t)).map(t => topic(t)).filter(Boolean);
 }
-/* Следующие непройденные темы маршрута; без маршрута — темы расписания. */
+/* Темы, на которых ученик был лично: индивидуальные и групповые занятия.
+   Пропуск и перенос не считаются. Посещение не означает освоения темы. */
+function personalPassedIds(sids) {
+  const list = [].concat(sids || []).filter(Boolean);
+  return new Set(S.lessons.filter(l => l.topicId && list.some(sid => l.marks?.[sid]?.s === 'был')).map(l => l.topicId));
+}
+/* Следующие непройденные темы маршрута; без маршрута — темы расписания.
+   sid — ученик или связанные карточки одного ученика: учитывается его личная история. */
 function upcomingTopics(type, id, n, sid) {
   const route = routeOf(type, id);
   const seen = new Set();
+  const sids = [].concat(sid || []).filter(Boolean);
+  const passed = sids.length ? personalPassedIds(sids) : new Set(passedTopics(type, id).map(t => t.id));
   if (route) {
-    const passed = new Set(passedTopics(type, id, sid).map(t => t.id));
     return (route.topicIds || []).filter(tid => !passed.has(tid) && !seen.has(tid) && seen.add(tid))
       .map(tid => topic(tid)).filter(Boolean).slice(0, n || 3);
   }
@@ -1385,7 +1393,7 @@ function upcomingTopics(type, id, n, sid) {
   return S.lessons
     .filter(l => l.ownerType === type && l.ownerId === id && l.topicId && !isMarked(l) && l.date >= today)
     .sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)
-    .map(l => l.topicId).filter(t => !seen.has(t) && seen.add(t)).map(t => topic(t)).filter(Boolean).slice(0, n || 3);
+    .map(l => l.topicId).filter(t => !passed.has(t) && !seen.has(t) && seen.add(t)).map(t => topic(t)).filter(Boolean).slice(0, n || 3);
 }
 const lessonsOn = d => S.lessons.filter(l => l.date === d && lessonOk(l)).sort((a,b) => toMin(a.time) - toMin(b.time));
 const lessonEnd = l => toMin(l.time) + Number(l.duration);
@@ -3361,7 +3369,10 @@ function viewMoney() {
   const from = `${yy}-${pad2(mm)}-01`;
   const to = `${yy}-${pad2(mm)}-${pad2(new Date(yy, mm, 0).getDate())}`;
 
-  const rows = liveStudents().map(st => {
+  const moneyPupils = liveStudents();
+  if (ui.moneyFilter && !moneyPupils.some(st => st.id === ui.moneyFilter)) ui.moneyFilter = '';
+  if (ui.moneyFilter && ui.moneyStudent && ui.moneyStudent !== ui.moneyFilter) ui.moneyStudent = null;
+  const rows = moneyPupils.filter(st => !ui.moneyFilter || st.id === ui.moneyFilter).map(st => {
     const inMonth = lessonsOfStudent(st.id).filter(l => l.date >= from && l.date <= to);
     const marked = inMonth.filter(l => markOf(l, st.id));
     const was = marked.filter(l => markOf(l, st.id).s === 'был').length;
@@ -3524,10 +3535,13 @@ function viewMoney() {
           el('div', {class:'meta', style:'font-size:12.5px', text:'Пока не отмечено — деньги за них не начислены.'})),
         el('button', {class:'btn btn-sm', onclick:() => go('today')}, 'Отметить'))) : null,
     el('div', {class:'filters'},
-      el('select', {onchange: e => { ui.moneyMonth = e.target.value; render(); }},
+      el('select', {'aria-label':'Месяц', onchange: e => { ui.moneyMonth = e.target.value; render(); }},
         ...months.map(m => { const [y,mo] = m.split('-'); return el('option', {value:m, selected:m===ui.moneyMonth}, `${MONN[+mo-1]} ${y}`); })),
+      el('select', {'aria-label':'Ученик', onchange: e => { ui.moneyFilter = e.target.value; if (ui.moneyStudent && ui.moneyFilter && ui.moneyStudent !== ui.moneyFilter) ui.moneyStudent = null; render(); }},
+        el('option', {value:'', selected:!ui.moneyFilter}, 'Все ученики'),
+        ...moneyPupils.map(st => el('option', {value:st.id, selected:st.id===ui.moneyFilter}, st.name + (st.cls ? ' · ' + st.cls + ' кл.' : '')))),
       el('span', {style:'flex:1'}),
-      el('span', {class:'meta', html: `За месяц начислено ${money(totalCharged)} · получено ${money(totalPaid)}`})),
+      el('span', {class:'meta', html: `${ui.moneyFilter ? 'Весь кабинет за месяц: начислено' : 'За месяц начислено'} ${money(totalCharged)} · получено ${money(totalPaid)}`})),
     el('div', {class:'card', style:'margin-bottom:16px'}, el('div', {class:'tablewrap'},
       el('table', {},
         el('thead',{}, el('tr',{},
@@ -3536,6 +3550,7 @@ function viewMoney() {
           el('th',{class:'r'},'Баланс всего'), el('th',{class:'r'},''))),
         el('tbody', {}, rows.length ? rows : el('tr',{}, el('td',{colspan:8, class:'empty', text:'Учеников пока нет.'})))))),
     payHistory,
+    ui.moneyFilter ? el('div', {class:'meta', style:'margin-top:14px'}, 'Показан один ученик. Итоги месяца, долги, предоплаты и выгрузки в Word, Excel и CSV — по всему кабинету.') : null,
     el('div', {class:'meta', style:'margin-top:14px'},
       `Столбцы «Занятий», «Посещено», «Пропущено», «Начислено» и «Оплачено» — за выбранный месяц. «Баланс всего» — за всё время: ${totalDebt ? 'долгов ' + totalDebt + ' ' + S.currency : 'долгов нет'}${totalAdvance ? ', предоплат ' + totalAdvance + ' ' + S.currency : ''}.`));
 }
@@ -3766,7 +3781,7 @@ function reportBlocks(st, month) {
     if(topics.length)B.push({k:'b',t:'Темы проведённых занятий'},...topics.map(t=>({k:'li',t:t.title})));
     const owners=new Map();
     data.ids.map(student).filter(Boolean).forEach(s=>{owners.set('student:'+s.id,['student',s.id]);if(s.groupId&&group(s.groupId))owners.set('group:'+s.groupId,['group',s.groupId]);});
-    const ahead=[...new Map([...owners.values()].flatMap(([type,id])=>upcomingTopics(type,id,3)).map(t=>[t.id,t])).values()];
+    const ahead=[...new Map([...owners.values()].flatMap(([type,id])=>upcomingTopics(type,id,3,data.ids)).map(t=>[t.id,t])).values()];
     if(ahead.length)B.push({k:'b',t:'Что впереди по плану'},...ahead.map(t=>({k:'li',t:t.title})));
   }else B.push({k:'p',t:data.inMonth.length?'Занятия пока не отмечены — после отметки они появятся в отчёте.':'За этот месяц нет прошедших занятий.'});
   for(const id of data.ids){const note=(S.reportNotes||{})[id+':'+month];if(note)B.push({k:'b',t:'Комментарий репетитора'+(data.ids.length>1?' · '+student(id).name:'')},{k:'p',t:note});}
@@ -3912,7 +3927,7 @@ function viewHelpContent() {
           }, 'Очистить всё')),
         el('div', {style:'margin-top:14px; padding-top:14px; border-top:1px solid var(--line)'},
           el('div', {class:'lab', style:'font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px', text:'Сохранность данных'}),
-          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION + ' · сборка ' + helpDateTime('2026-10-01T05:16:57Z')),
+          el('div', {class:'meta', style:'font-size:13px'}, 'Версия кабинета: ' + VERSION + ' · сборка ' + helpDateTime('2026-10-03T14:24:16Z')),
           el('div', {class:'meta', style:'font-size:13px'},
             'Последняя копия: ' + (lastBackup() ? helpDateTime(helpBackupTime()) + ' (' + daysSinceBackup() + ' ' + plural(daysSinceBackup(),'день','дня','дней') + ' назад)' : 'ещё не сохранялась')),
           el('div', {class:'meta', style:'font-size:13px'},
@@ -7075,7 +7090,7 @@ function homeworkSolutionEditor(solution) {
     el('div',{class:'meta',text:'Для следующей проверки. Вставьте проверенное решение или прикрепите PDF, затем сохраните занятие.'}),text,input,el('button',{type:'button',class:'btn',onclick:()=>input.click()},'Выбрать PDF'),status,preview);
 }
 
-const HELP_RELEASE_AT = '2026-10-01T05:16:57Z';
+const HELP_RELEASE_AT = '2026-10-03T14:24:16Z';
 // Presentation only: preserve original controls and their event handlers.
 
 function helpDateTime(value) {
