@@ -140,6 +140,7 @@ exec((root/'source/rate-correction.py').read_text())
 exec((root/'source/unified-report.py').read_text())
 exec((root/'source/report-layout.py').read_text())
 exec((root/'source/current-remarks.py').read_text())
+exec((root/'source/lesson-periods.py').read_text())
 # Current release timestamp overrides historical patch metadata in both Help labels.
 release_at=(root/'source/release-at.txt').read_text().strip()
 assert s.count('2026-09-16T06:36:16Z')==2, 'Release date anchors changed'
@@ -152,4 +153,5 @@ sw=sw.replace('svetlana-route-20260916-1','svetlana-usability-20260930-1')
 sw=sw.replace('svetlana-usability-20260930-1','svetlana-rates-20261001-1')
 sw=sw.replace('svetlana-rates-20261001-1','svetlana-rates-20261001-2')
 sw=sw.replace('svetlana-rates-20261001-2','svetlana-remarks-20261003-1')
+sw=sw.replace('svetlana-remarks-20261003-1','svetlana-periods-20261006-1')
 (root/'site/sw.js').write_text(sw)
