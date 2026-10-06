@@ -9,7 +9,7 @@ module.exports=async function(page,fixture,out,spec){
   {id:'grp',ownerType:'group',ownerId:'g',date:today,time:'09:00',duration:60,topicId:'t2',marks:{a:{s:'был',ch:true},b:{s:'пропуск',ch:false}},rates:{a:10,b:10},materialIds:[],homework:'',per:{},result:'',note:'',plan:''}];
  d.payments=[{id:'pa',studentId:'a',date:today,amount:10},{id:'pb',studentId:'b',date:prev,amount:5}];
  await page.evaluate(d=>localStorage.setItem('tochka-resheniya-v2',JSON.stringify(d)),d);
- page.once('dialog',x=>x.accept());await page.reload();
+ page.once('dialog',x=>x.accept().catch(()=>{}));await page.reload();
  const before=await page.evaluate(()=>localStorage.getItem('tochka-resheniya-v2'));
  const menu=page.locator('#menuBtn'),nav=async name=>{if(await menu.isVisible())await menu.click();await page.locator('#nav button').filter({hasText:name}).click();};
  await nav('Посещения и оплата');
